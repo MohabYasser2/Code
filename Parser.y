@@ -181,6 +181,8 @@ statement : block
           | return_statement  SEMICOLON
           | function_call     SEMICOLON
           | print_statement   SEMICOLON
+          | error             SEMICOLON  { yyerrok; }
+          | error             SCOPE_END  { yyerrok; }
           ;
 
 /* -------------------------------------------------------------------------
@@ -255,15 +257,16 @@ block : SCOPE_START {
                          * return type. */
                         if (lastSymbol && lastSymbol->kind == KIND_FUNC && !currFunc) {
                             currFunc = lastSymbol;
+                            lastSymbol = NULL;
                         }
 
                         /* Inject the function's parameters into the new scope
                          * so the body can reference them by name. We also
                          * defensively check for parameter-name redeclaration
                          * (impossible here in practice, but cheap to verify). */
-                        if (lastSymbol && lastSymbol->kind == KIND_FUNC && lastSymbol->numParams > 0) {
+                        if (currFunc && funcDepth == 0 && currFunc->numParams > 0) {
                             for (int i = 0; i < numParams; i++) {
-                                Symbol* param = lastSymbol->params[i];
+                                Symbol* param = currFunc->params[i];
                                 if (ScopeSymbolTable_get(symbolTable->head, param->name)) {
                                     fprintf(semanticAnalysisFile, "Line %d: Invalid declaration: cannot redeclare symbol.", line);
                                     yyerror("Invalid declaration: cannot redeclare symbol.");
@@ -1737,7 +1740,7 @@ mathematical_term : mathematical_term MULT mathematical_exponent    {
                                                                         $$->type = TYPE_INT;
                                                                         $$->data.i = $1->data.i % $3->data.i;
                                                                         $$->label = allocateTempVar(&tempVars);
-                                                                        fprintf(quadruplesFile, "(%, %s, %s, %s)\n", $1->label, $3->label, $$->label);
+                                                                        fprintf(quadruplesFile, "(%%, %s, %s, %s)\n", $1->label, $3->label, $$->label);
                                                                     }
                   | mathematical_exponent                           {
                                                                         $$ = $1;
@@ -1858,9 +1861,10 @@ primary : OPENING_PARENTHESIS logical_expression CLOSING_PARENTHESIS    {
                                                                             $$->type = TYPE_STRING;
                                                                             $$->data.s = $1;
                                                                             $$->label = malloc(strlen($1) + 3);
-                                                                            strcpy($$->label + 1, $1);
                                                                             $$->label[0] = '"';
+                                                                            strcpy($$->label + 1, $1);
                                                                             $$->label[strlen($1) + 1] = '"';
+                                                                            $$->label[strlen($1) + 2] = '\0';
                                                                         }
         /* Variable / constant lookup. THIS is where we enforce
          * use-before-init and "is this identifier even declared". */
@@ -1975,10 +1979,7 @@ print_statement : PRINT OPENING_PARENTHESIS argument_list CLOSING_PARENTHESIS   
  * ------------------------------------------------------------------------- */
 void yyerror(const char* s) {
     fprintf(stderr, "\nLine %d: %s\n", line, s);
-    if (symbolTableFile)      fclose(symbolTableFile);
-    if (semanticAnalysisFile) fclose(semanticAnalysisFile);
-    if (quadruplesFile)       fclose(quadruplesFile);
-    exit(1);
+    hadError = 1;
 }
 
 /* -------------------------------------------------------------------------
@@ -2048,6 +2049,6 @@ int main(int argc, char** argv) {
     fclose(semanticAnalysisFile);
     fclose(symbolTableVisualiser);
     fclose(quadruplesFile);
-    
-    return 0;
+
+    return hadError;
 }
