@@ -69,6 +69,13 @@ extern int numArgs;
  * rule to detect "we just declared a function and are now entering its
  * body": when the next '{' opens a scope we need to inject the function's
  * parameters as locals into that new scope.
+ *
+ * IMPORTANT lifecycle: lastSymbol is set by every declaration action and
+ * is CLEARED inside `block` once the FUNC-body case has consumed it.
+ * This narrow lifetime ("set by the last declaration, valid only until
+ * the next `{`") is what prevents the nested-function check from
+ * spuriously firing on every inner if / while / for / switch / repeat
+ * block opened inside a function body.
  * ------------------------------------------------------------------------- */
 extern Symbol* lastSymbol;
 

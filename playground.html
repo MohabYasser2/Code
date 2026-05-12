@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Compiler Playground - CMPN403</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --bg-page:      #F4F4F6;
+  --bg-panel:     #FFFFFF;
+  --bg-editor:    #0F172A;
+  --bg-editor-2:  #1E293B;
+  --bg-output:    #FAFAFA;
+
+  --fg:           #0F172A;
+  --fg-muted:     #475569;
+  --fg-dim:       #94A3B8;
+  --border:       #E2E8F0;
+  --border-strong:#CBD5E1;
+
+  --accent:       #4F46E5;
+  --accent-deep:  #4338CA;
+  --accent-light: #C7D2FE;
+  --accent-bg:    #EEF2FF;
+
+  --success:      #10B981;
+  --success-bg:   #ECFDF5;
+  --warn:         #F59E0B;
+  --warn-bg:      #FFFBEB;
+  --danger:       #EF4444;
+  --danger-bg:    #FEF2F2;
+
+  /* scope tints for the symbol-table visualiser */
+  --scope-0: #DBEAFE;  --scope-0-d: #1E40AF;
+  --scope-1: #FAE8FF;  --scope-1-d: #86198F;
+  --scope-2: #DCFCE7;  --scope-2-d: #166534;
+  --scope-3: #FEF3C7;  --scope-3-d: #854D0E;
+  --scope-4: #FFE4E6;  --scope-4-d: #9F1239;
+
+  /* syntax tokens used in editor + quad highlighter */
+  --syn-kw:  #C792EA;
+  --syn-ty:  #FFCB6B;
+  --syn-num: #F78C6C;
+  --syn-str: #A5E1A5;
+  --syn-com: #6B7280;
+  --syn-fn:  #82AAFF;
+  --syn-op:  #FF6B9D;
+  --syn-lbl: #FFD580;
+  --syn-na:  #6B7280;
+
+  --shadow-sm: 0 1px 2px rgba(15,23,42,.04), 0 1px 1px rgba(15,23,42,.03);
+  --shadow-md: 0 4px 12px rgba(15,23,42,.06), 0 1px 2px rgba(15,23,42,.04);
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg-page);
+  color: var(--fg);
+  font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  font-size: 14.5px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ============================== TOP BAR ============================== */
+header.topbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 18px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+  z-index: 10;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.brand .logo {
+  width: 32px; height: 32px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--r-sm);
+  display: grid; place-items: center;
+  font-weight: 700;
+}
+.brand small {
+  display: block;
+  color: var(--fg-muted);
+  font-weight: 400;
+  font-size: 11.5px;
+}
+
+.controls { display: flex; gap: 10px; align-items: center; margin-left: auto; }
+button, select {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+  padding: 7px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  color: var(--fg);
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+button:hover { background: var(--accent-bg); border-color: var(--accent-light); color: var(--accent-deep); }
+button:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+button.primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+button.primary:hover { background: var(--accent-deep); border-color: var(--accent-deep); color: #fff; }
+
+select { padding-right: 28px; }
+
+.switch {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+  color: var(--fg-muted);
+  user-select: none;
+  cursor: pointer;
+}
+.switch input { display: none; }
+.switch .track {
+  width: 34px; height: 18px;
+  background: var(--border-strong);
+  border-radius: 999px;
+  position: relative;
+  transition: background 200ms ease;
+}
+.switch .track::after {
+  content: ""; position: absolute;
+  top: 2px; left: 2px;
+  width: 14px; height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 200ms ease;
+  box-shadow: 0 1px 2px rgba(0,0,0,.2);
+}
+.switch input:checked + .track { background: var(--accent); }
+.switch input:checked + .track::after { transform: translateX(16px); }
+
+.status-pill {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid;
+  display: inline-flex; align-items: center; gap: 6px;
+  white-space: nowrap;
+}
+.status-pill .dot { width: 7px; height: 7px; border-radius: 50%; }
+.pill-idle    { background: #F1F5F9; border-color: #CBD5E1; color: #475569; }
+.pill-idle    .dot { background: #94A3B8; }
+.pill-running { background: var(--accent-bg); border-color: var(--accent-light); color: var(--accent-deep); }
+.pill-running .dot { background: var(--accent); animation: pulse 900ms ease-in-out infinite; }
+.pill-ok      { background: var(--success-bg); border-color: #6EE7B7; color: #065F46; }
+.pill-ok      .dot { background: var(--success); }
+.pill-err     { background: var(--danger-bg); border-color: #FCA5A5; color: #991B1B; }
+.pill-err     .dot { background: var(--danger); }
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(1.4); }
+}
+
+/* ============================== LAYOUT ============================== */
+main.workspace {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+  min-height: 0;
+}
+@media (max-width: 1100px) {
+  main.workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(280px, 1fr) minmax(180px, 1fr) minmax(180px, 1fr) minmax(140px, auto);
+    overflow-y: auto;
+  }
+  body { overflow: auto; }
+}
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.panel-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex: 0 0 auto;
+}
+.panel-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+.panel-meta {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--fg-dim);
+}
+.panel-body { flex: 1 1 auto; overflow: auto; }
+
+/* takes 2 rows on the left */
+#panel-editor { grid-row: span 2; }
+
+/* ============================== EDITOR ============================== */
+.editor-wrap {
+  display: flex;
+  background: var(--bg-editor);
+  height: 100%;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.gutter {
+  flex: 0 0 auto;
+  width: 44px;
+  padding: 12px 8px 12px 0;
+  text-align: right;
+  color: #475569;
+  user-select: none;
+  background: var(--bg-editor);
+  border-right: 1px solid var(--bg-editor-2);
+}
+.gutter span {
+  display: block;
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+}
+.code-input {
+  flex: 1 1 auto;
+  background: transparent;
+  color: #E2E8F0;
+  border: none;
+  outline: none;
+  padding: 12px 14px;
+  resize: none;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  tab-size: 4;
+  -moz-tab-size: 4;
+  white-space: pre;
+  overflow: auto;
+  caret-color: #C7D2FE;
+}
+.code-input::selection { background: rgba(99,102,241,0.35); }
+
+/* ============================== QUADRUPLES ============================== */
+.quads {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  padding: 12px 16px;
+  background: var(--bg-output);
+  min-height: 100%;
+  counter-reset: quadln;
+}
+.quads .qline {
+  display: grid;
+  grid-template-columns: 38px 1fr;
+  gap: 10px;
+  padding: 1px 0;
+}
+.quads .qline:hover { background: var(--accent-bg); border-radius: 3px; }
+.quads .qline::before {
+  counter-increment: quadln;
+  content: counter(quadln);
+  color: var(--fg-dim);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  padding-top: 1px;
+}
+.quads .qlabel { color: var(--accent-deep); font-weight: 600; }
+.quads .qproc  { color: var(--success); font-weight: 600; }
+.quads .qjump  { color: #DC2626; font-weight: 600; }
+.quads .qprint { color: #D97706; font-weight: 600; }
+.quads .qcall  { color: #7C3AED; font-weight: 600; }
+.quads .qcmp   { color: #0891B2; font-weight: 600; }
+.quads .qarith { color: #DB2777; font-weight: 600; }
+.quads .qassign{ color: #0F766E; font-weight: 600; }
+.quads .qstack { color: #92400E; font-weight: 600; }
+.quads .qna    { color: var(--syn-na); font-style: italic; }
+.quads .qpunct { color: var(--fg-dim); }
+.quads .qarg   { color: var(--fg); }
+
+.empty-placeholder {
+  display: grid; place-items: center;
+  height: 100%;
+  color: var(--fg-dim);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  text-align: center;
+  padding: 24px;
+}
+
+/* ============================== SYMBOL TABLE ============================== */
+.st-tree { padding: 12px; font-family: 'IBM Plex Sans', sans-serif; }
+.scope-card {
+  background: var(--bg-panel);
+  border: 2px solid;
+  border-radius: var(--r-md);
+  margin: 0 0 10px 0;
+  overflow: hidden;
+}
+.scope-card.depth-0 { border-color: var(--scope-0-d); }
+.scope-card.depth-1 { border-color: var(--scope-1-d); margin-left: 18px; }
+.scope-card.depth-2 { border-color: var(--scope-2-d); margin-left: 36px; }
+.scope-card.depth-3 { border-color: var(--scope-3-d); margin-left: 54px; }
+.scope-card.depth-4 { border-color: var(--scope-4-d); margin-left: 72px; }
+.scope-header {
+  padding: 7px 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.scope-card.depth-0 .scope-header { background: var(--scope-0); color: var(--scope-0-d); }
+.scope-card.depth-1 .scope-header { background: var(--scope-1); color: var(--scope-1-d); }
+.scope-card.depth-2 .scope-header { background: var(--scope-2); color: var(--scope-2-d); }
+.scope-card.depth-3 .scope-header { background: var(--scope-3); color: var(--scope-3-d); }
+.scope-card.depth-4 .scope-header { background: var(--scope-4); color: var(--scope-4-d); }
+.symbol-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.symbol-table th, .symbol-table td {
+  text-align: left;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+}
+.symbol-table th {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+  font-weight: 600;
+  background: #FAFAFB;
+}
+.symbol-table tbody tr:hover { background: var(--accent-bg); }
+.symbol-table .empty-scope {
+  color: var(--fg-dim);
+  font-style: italic;
+  padding: 6px 12px;
+}
+.kind-pill {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.kind-variable { background: #EEF2FF; color: #4338CA; }
+.kind-constant { background: #FEF3C7; color: #854D0E; }
+.kind-function { background: #DCFCE7; color: #166534; }
+
+/* ============================== ERRORS ============================== */
+.err-panel { padding: 8px; min-height: 100%; }
+.err-line {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 9px 12px;
+  margin: 0 0 6px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+}
+.err-line .severity {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.err-error   { background: var(--danger-bg); border-left: 3px solid var(--danger); color: #7F1D1D; }
+.err-error .severity   { background: var(--danger); color: #fff; }
+.err-warn    { background: var(--warn-bg);   border-left: 3px solid var(--warn);   color: #78350F; }
+.err-warn .severity    { background: var(--warn); color: #fff; }
+.err-info    { background: var(--accent-bg); border-left: 3px solid var(--accent); color: var(--accent-deep); }
+.err-info .severity    { background: var(--accent); color: #fff; }
+.err-msg { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
+
+.empty-state {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--fg-dim);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+}
+.empty-state .icon {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: var(--success-bg);
+  color: var(--success);
+  display: grid; place-items: center;
+  font-size: 18px;
+  margin: 0 auto 12px;
+  font-weight: 700;
+}
+
+/* tiny helpers */
+.spacer { flex: 1 1 auto; }
+.kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  padding: 1px 6px;
+  background: #F1F5F9;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  color: var(--fg-muted);
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="logo" aria-hidden="true">C</div>
+    <div>CMPN403 Playground<small>Live compiler - bison + flex + gcc</small></div>
+  </div>
+
+  <div class="controls">
+    <span id="status" class="status-pill pill-idle"><span class="dot"></span>idle</span>
+    <select id="example-select" title="Load an example">
+      <option value="">Load example...</option>
+    </select>
+    <label class="switch" title="Recompile automatically as you type (debounced 450ms)">
+      <input id="autocompile" type="checkbox" checked />
+      <span class="track"></span>
+      <span>Auto-compile</span>
+    </label>
+    <button id="btn-run" class="primary" title="Compile now (Ctrl+Enter)">Run <span class="kbd" style="margin-left:6px; background:rgba(255,255,255,.18); color:#fff; border-color: rgba(255,255,255,.3);">Ctrl+&#9166;</span></button>
+  </div>
+</header>
+
+<main class="workspace">
+  <!-- ============= LEFT: editor (full height) ============= -->
+  <section class="panel" id="panel-editor">
+    <div class="panel-head">
+      <span class="panel-title">Source</span>
+      <span class="panel-meta" id="src-meta">0 lines &middot; 0 chars</span>
+    </div>
+    <div class="panel-body" style="overflow: hidden;">
+      <div class="editor-wrap">
+        <div class="gutter" id="gutter" aria-hidden="true"></div>
+        <textarea
+          id="editor"
+          class="code-input"
+          spellcheck="false"
+          autocorrect="off"
+          autocapitalize="off"
+          wrap="off"
+          placeholder="// Type a program in our language...&#10;int a = 5;&#10;int b = 10;&#10;if (a < b) {&#10;    print(a + b);&#10;}"
+        ></textarea>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============= TOP-RIGHT: quadruples ============= -->
+  <section class="panel">
+    <div class="panel-head">
+      <span class="panel-title">Quadruples (IR)</span>
+      <span class="panel-meta" id="q-meta">0 instructions</span>
+    </div>
+    <div class="panel-body" id="quads-pane">
+      <div class="empty-placeholder">Type some code, then press Run.<br/>Quadruples will appear here.</div>
+    </div>
+  </section>
+
+  <!-- ============= BOTTOM-RIGHT: symbol table + errors split ============= -->
+  <section class="panel" style="display: flex; flex-direction: column;">
+    <div class="panel-head">
+      <span class="panel-title">Symbol Table</span>
+      <span class="panel-meta" id="st-meta">0 scopes</span>
+    </div>
+    <div class="panel-body" id="st-pane">
+      <div class="empty-placeholder">No declarations yet.</div>
+    </div>
+  </section>
+
+  <!-- ============= ERRORS ============= -->
+  <section class="panel">
+    <div class="panel-head">
+      <span class="panel-title">Errors &amp; Warnings</span>
+      <span class="panel-meta" id="err-meta">all clear</span>
+    </div>
+    <div class="panel-body" id="err-pane">
+      <div class="empty-state">
+        <div class="icon">&#10003;</div>
+        Output will appear after the first compile.
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+/* ====================================================================
+ * State + DOM refs
+ * ==================================================================== */
+const editor        = document.getElementById('editor');
+const gutter        = document.getElementById('gutter');
+const srcMeta       = document.getElementById('src-meta');
+const status        = document.getElementById('status');
+const autocompile   = document.getElementById('autocompile');
+const btnRun        = document.getElementById('btn-run');
+const exSelect      = document.getElementById('example-select');
+
+const quadsPane     = document.getElementById('quads-pane');
+const qMeta         = document.getElementById('q-meta');
+const stPane        = document.getElementById('st-pane');
+const stMeta        = document.getElementById('st-meta');
+const errPane       = document.getElementById('err-pane');
+const errMeta       = document.getElementById('err-meta');
+
+let debounceTimer = null;
+let inflight = false;
+
+/* ====================================================================
+ * Editor helpers - gutter, char count, tab key
+ * ==================================================================== */
+function updateGutter() {
+  const lines = editor.value.split('\n').length;
+  let html = '';
+  for (let i = 1; i <= Math.max(lines, 1); i++) html += '<span>' + i + '</span>';
+  gutter.innerHTML = html;
+  srcMeta.textContent = `${lines} line${lines===1?'':'s'} · ${editor.value.length} chars`;
+}
+
+editor.addEventListener('scroll', () => {
+  // keep gutter aligned with editor's scroll
+  gutter.scrollTop = editor.scrollTop;
+});
+
+editor.addEventListener('input', () => {
+  updateGutter();
+  if (autocompile.checked) scheduleCompile();
+});
+
+// Tab inserts spaces (4) instead of changing focus
+editor.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Tab') {
+    ev.preventDefault();
+    const start = editor.selectionStart;
+    const end   = editor.selectionEnd;
+    editor.setRangeText('    ', start, end, 'end');
+    updateGutter();
+    if (autocompile.checked) scheduleCompile();
+  }
+  // Ctrl/Cmd + Enter -> run
+  if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') {
+    ev.preventDefault();
+    compileNow();
+  }
+});
+
+/* ====================================================================
+ * Network: POST source -> JSON {quadruples, ...}
+ * ==================================================================== */
+function setStatus(kind, label) {
+  status.classList.remove('pill-idle','pill-running','pill-ok','pill-err');
+  status.classList.add(kind);
+  status.innerHTML = '<span class="dot"></span>' + label;
+}
+
+function scheduleCompile() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(compileNow, 450);
+}
+
+async function compileNow() {
+  if (inflight) return;
+  inflight = true;
+  setStatus('pill-running', 'compiling');
+  try {
+    const res = await fetch('/compile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: editor.value })
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      renderRuntimeError(data.error || 'unknown error');
+      setStatus('pill-err', 'server error');
+      return;
+    }
+    renderAll(data);
+    if (data.exitCode === 0) setStatus('pill-ok', 'compiled');
+    else setStatus('pill-err', `exit ${data.exitCode}`);
+  } catch (err) {
+    renderRuntimeError('Could not reach the playground server.\n' + err);
+    setStatus('pill-err', 'server down');
+  } finally {
+    inflight = false;
+  }
+}
+
+btnRun.addEventListener('click', compileNow);
+
+/* ====================================================================
+ * Render: quadruples (with syntax highlighting)
+ * ==================================================================== */
+function renderQuadruples(text) {
+  if (!text || !text.trim()) {
+    quadsPane.innerHTML = '<div class="empty-placeholder">No quadruples emitted.</div>';
+    qMeta.textContent = '0 instructions';
+    return;
+  }
+  const lines = text.split('\n').filter(l => l.length > 0);
+
+  // Counters: count actual quads (not bare label lines)
+  let instructionCount = 0;
+
+  const rendered = lines.map(raw => {
+    const line = raw.trimEnd();
+    // 1) label definition: "LABEL3:"
+    if (/^[A-Z_][A-Z0-9_]*:\s*$/.test(line)) {
+      return `<div class="qline"><span></span><span class="qlabel">${escape(line)}</span></div>`;
+    }
+    // 2) "PROC funcname" - function header
+    if (/^PROC\s+/.test(line)) {
+      const m = line.match(/^(PROC)\s+(\S+)/);
+      return `<div class="qline"><span></span><span><span class="qproc">${m[1]}</span> <span class="qarg">${escape(m[2])}</span></span></div>`;
+    }
+    // 3) parens-quad form: (op, a1, a2, res)
+    const m = line.match(/^\((.*?),\s*(.*?),\s*(.*?),\s*(.*?)\)$/);
+    if (m) {
+      instructionCount++;
+      const op = m[1], a1 = m[2], a2 = m[3], res = m[4];
+      const opClass = classifyOp(op);
+      return `<div class="qline"><span></span><span>` +
+        `<span class="qpunct">(</span>` +
+        `<span class="${opClass}">${escape(op)}</span>` +
+        `<span class="qpunct">, </span>` + arg(a1) +
+        `<span class="qpunct">, </span>` + arg(a2) +
+        `<span class="qpunct">, </span>` + arg(res) +
+        `<span class="qpunct">)</span>` +
+        `</span></div>`;
+    }
+    // 4) fallback - just print
+    return `<div class="qline"><span></span><span class="qarg">${escape(line)}</span></div>`;
+  });
+
+  quadsPane.innerHTML = `<div class="quads">${rendered.join('')}</div>`;
+  qMeta.textContent = `${instructionCount} instruction${instructionCount===1?'':'s'}`;
+}
+
+function arg(tok) {
+  const t = tok.trim();
+  if (t === 'N/A') return `<span class="qna">N/A</span>`;
+  return `<span class="qarg">${escape(t)}</span>`;
+}
+
+function classifyOp(op) {
+  op = op.trim();
+  if (op === 'JMP' || op === 'JZ')              return 'qjump';
+  if (op === 'PRINT')                            return 'qprint';
+  if (op === 'CALL' || op === 'RET')             return 'qcall';
+  if (op === 'PUSH' || op === 'POP')             return 'qstack';
+  if (op === '=' )                                return 'qassign';
+  if (['==','!=','<','>','<=','>='].includes(op)) return 'qcmp';
+  if (['+','-','*','/','%','^','&','|','!'].includes(op)) return 'qarith';
+  return 'qarith';
+}
+
+function escape(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* ====================================================================
+ * Render: symbol table - parse SymbolTableVisualiser.out into a tree
+ * ====================================================================
+ * The file produced by Parser.y has this rough shape:
+ *
+ *   Symbol table for global scope.
+ *   | name | kind | value | type | declaration line |
+ *   -------------------------...
+ *   | a    | variable | 5 | int | 1 |
+ *   | b    | variable | - | int | 2 |
+ *       Symbol table for new scope: 1
+ *       | name | kind | value | type | declaration line |
+ *       -------------------------...
+ *       | n    | variable | 0 | int | 4 |
+ *   Returning to symbol table for global scope.
+ *   | c    | variable | 7 | int | 5 |
+ *
+ * Indentation level == scope depth. Header rows are "Symbol table for..."
+ * lines; data rows start with "|".
+ */
+function renderSymbolTable(text) {
+  if (!text || !text.trim()) {
+    stPane.innerHTML = '<div class="empty-placeholder">No declarations yet.</div>';
+    stMeta.textContent = '0 scopes';
+    return;
+  }
+  const rawLines = text.split('\n');
+
+  // Stack of scope objects. Each scope = { depth, name, rows: [] }.
+  const stack = [];
+  let scopes = [];
+  const pushScope = (depth, name) => {
+    const s = { depth, name, rows: [] };
+    scopes.push(s);
+    stack.push(s);
+    return s;
+  };
+  pushScope(0, 'global');
+
+  for (const raw of rawLines) {
+    if (!raw.trim()) continue;
+    // count leading spaces (indent uses 4-space units in our output)
+    const indent = raw.match(/^(\s*)/)[0].length;
+    const depth = Math.max(0, Math.floor(indent / 4));
+    const line = raw.trim();
+
+    if (line.startsWith('Symbol table for new scope')) {
+      pushScope(depth, line.replace(/^Symbol table for /, ''));
+      continue;
+    }
+    if (line.startsWith('Returning to symbol table')) {
+      // pop one
+      stack.pop();
+      continue;
+    }
+    if (line.startsWith('Symbol table for global scope')) {
+      continue; // initial header (we already created depth-0 scope)
+    }
+    // separator dashes
+    if (/^-+$/.test(line)) continue;
+    // header row of the visualiser table
+    if (line.startsWith('| name')) continue;
+    if (line.startsWith('|')) {
+      // data row
+      const cells = line.split('|').map(s => s.trim()).filter(s => s !== '');
+      // cells = [name, kind, value, type, declLine]
+      if (cells.length >= 5) {
+        const target = stack[stack.length - 1] || scopes[scopes.length - 1];
+        target.rows.push({
+          name: cells[0], kind: cells[1], value: cells[2],
+          type: cells[3], line: cells[4],
+        });
+      }
+    }
+  }
+
+  // Render
+  let html = '<div class="st-tree">';
+  for (const s of scopes) {
+    const dep = Math.min(s.depth, 4);
+    html += `<div class="scope-card depth-${dep}">`;
+    html += `<div class="scope-header">${escape(s.name === 'global' ? 'global scope' : s.name)}</div>`;
+    if (s.rows.length === 0) {
+      html += `<div class="empty-scope">(no declarations)</div>`;
+    } else {
+      html += '<table class="symbol-table"><thead><tr>' +
+              '<th>name</th><th>kind</th><th>type</th><th>value</th><th>line</th>' +
+              '</tr></thead><tbody>';
+      for (const r of s.rows) {
+        const kindCss = r.kind === 'variable' ? 'kind-variable'
+                       : r.kind === 'constant' ? 'kind-constant'
+                       : 'kind-function';
+        html += `<tr>
+          <td><b>${escape(r.name)}</b></td>
+          <td><span class="kind-pill ${kindCss}">${escape(r.kind)}</span></td>
+          <td>${escape(r.type)}</td>
+          <td>${escape(r.value)}</td>
+          <td>${escape(r.line)}</td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  stPane.innerHTML = html;
+  stMeta.textContent = `${scopes.length} scope${scopes.length===1?'':'s'}`;
+}
+
+/* ====================================================================
+ * Render: errors & warnings
+ * ====================================================================
+ * SemanticAnalysis.out contains "Warning: ..." and "Line N: ..." lines.
+ * stderr from the compiler contains "Line N: syntax error" or final
+ * yyerror messages on abort.
+ */
+function renderErrors(payload) {
+  const items = [];
+  const semText = payload.semanticAnalysis || '';
+  for (const raw of semText.split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    const isWarn = /^warning/i.test(line);
+    items.push({ severity: isWarn ? 'warn' : 'error', text: line });
+  }
+  // stderr may have "\nLine 14: syntax error" - capture each non-empty line
+  const errText = payload.stderr || '';
+  for (const raw of errText.split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    // avoid duplicating identical messages
+    if (items.some(x => x.text === line)) continue;
+    items.push({ severity: 'error', text: line });
+  }
+
+  if (items.length === 0) {
+    if (payload.exitCode === 0) {
+      errPane.innerHTML = `<div class="empty-state"><div class="icon">&#10003;</div>Compiled cleanly. No errors, no warnings.</div>`;
+      errMeta.textContent = 'all clear';
+    } else {
+      errPane.innerHTML = `<div class="empty-state"><div class="icon" style="background:var(--danger-bg);color:var(--danger);">!</div>Exited with code ${payload.exitCode} but no diagnostics were produced.</div>`;
+      errMeta.textContent = `exit ${payload.exitCode}`;
+    }
+    return;
+  }
+
+  const errors = items.filter(x => x.severity === 'error').length;
+  const warns  = items.filter(x => x.severity === 'warn').length;
+
+  let html = '<div class="err-panel">';
+  for (const it of items) {
+    const cls = it.severity === 'warn' ? 'err-warn' : 'err-error';
+    const lbl = it.severity === 'warn' ? 'warn' : 'error';
+    html += `<div class="err-line ${cls}">
+      <span class="severity">${lbl}</span>
+      <span class="err-msg">${escape(it.text)}</span>
+    </div>`;
+  }
+  html += '</div>';
+  errPane.innerHTML = html;
+  errMeta.textContent = `${errors} error${errors===1?'':'s'} · ${warns} warning${warns===1?'':'s'}`;
+}
+
+function renderRuntimeError(msg) {
+  errPane.innerHTML = `<div class="err-panel">
+    <div class="err-line err-info">
+      <span class="severity">info</span>
+      <span class="err-msg">${escape(msg)}</span>
+    </div>
+  </div>`;
+  errMeta.textContent = 'server error';
+}
+
+function renderAll(payload) {
+  renderQuadruples(payload.quadruples || '');
+  renderSymbolTable(payload.symbolTableVisualiser || '');
+  renderErrors(payload);
+}
+
+/* ====================================================================
+ * Examples loader
+ * ==================================================================== */
+async function loadExamples() {
+  try {
+    const res = await fetch('/examples');
+    const data = await res.json();
+    for (const [key, ex] of Object.entries(data)) {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = ex.label;
+      exSelect.appendChild(opt);
+    }
+    // Cache for click handler
+    exSelect._data = data;
+  } catch (e) {
+    console.warn('Could not load examples', e);
+  }
+}
+exSelect.addEventListener('change', (ev) => {
+  const key = ev.target.value;
+  if (!key) return;
+  const ex = exSelect._data && exSelect._data[key];
+  if (ex) {
+    editor.value = ex.source;
+    updateGutter();
+    compileNow();
+  }
+  ev.target.selectedIndex = 0;
+});
+
+/* ====================================================================
+ * Bootstrap
+ * ==================================================================== */
+const DEFAULT_PROGRAM = [
+  '// CMPN403 playground - edit me; results refresh live.',
+  '',
+  'int a = 5;',
+  'int b = 10;',
+  'const float pi = 3.14;',
+  '',
+  'if ((a < b) & (a != 0)) {',
+  '    print(a + b);',
+  '} else {',
+  '    print(0);',
+  '}',
+  '',
+  'int i = 0;',
+  'while (i < 3) {',
+  '    i = i + 1;',
+  '}',
+  '',
+  'int square(int n) {',
+  '    return n * n;',
+  '}',
+  '',
+  'int r;',
+  'r = square(4);',
+  'print(r);',
+  ''
+].join('\n');
+
+editor.value = DEFAULT_PROGRAM;
+updateGutter();
+loadExamples();
+compileNow();
+</script>
+
+</body>
+</html>

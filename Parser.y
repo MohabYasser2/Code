@@ -194,11 +194,21 @@ statement : block
  *         - Log a "Constructing new table" line, indented to the
  *           current depth, plus header rows for the visualiser.
  *         - SymbolTable_push() opens a fresh inner scope on the stack.
- *         - SPECIAL CASE: if the most recently declared symbol is a
- *           function and we are NOT already inside one, this block is
- *           the body of that function. We mark currFunc and INJECT all
- *           the function's parameters as local symbols of the new scope
- *           (so the function body can reference them by name).
+ *         - If the most recent declaration is a function AND we are
+ *           ALREADY inside one, reject - the language doesn't support
+ *           nested function declarations.
+ *         - Otherwise, if the most recent declaration is a function and
+ *           we are NOT inside one, this block is that function's body.
+ *           Mark currFunc and INJECT the function's parameters as local
+ *           symbols of the new scope (so the body can reference them by
+ *           name).
+ *         - CLEAR lastSymbol after consumption. If we left it set, the
+ *           next inner block opened inside this function body (an
+ *           if-body / while-body / etc.) would re-fire the
+ *           nested-function check against the SAME function symbol and
+ *           emit a spurious "cannot declare a function inside a
+ *           function" error. Clearing makes lastSymbol meaningful only
+ *           between a declaration and the immediately following block.
  *
  *   (b) Just after the matching '}':
  *         - If we're done with the outermost block of a function, clear
@@ -285,6 +295,19 @@ block : SCOPE_START {
                                 SymbolTable_insert(symbolTable, symbol);
                                 writeSymbolToVisualiser(symbol, symbolTable->size);
                             }
+                        }
+
+                        /* Clear lastSymbol once consumed (see header
+                         * comment above this rule).  Without this, every
+                         * inner if/while/for/switch/repeat body opened
+                         * inside a function would falsely re-trigger the
+                         * "function inside function" check against the
+                         * enclosing function's own symbol. A REAL nested
+                         * function still triggers correctly because
+                         * function_header would set lastSymbol to the
+                         * fresh inner FUNC AFTER this clear. */
+                        if (lastSymbol && lastSymbol->kind == KIND_FUNC) {
+                            lastSymbol = NULL;
                         }
                     }
         statements

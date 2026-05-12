@@ -16,6 +16,9 @@ src.txt
 err.txt
 build.bat
 build_log.txt
+play_*.txt
+playground.log
+playground.err.log
 
 # --- Editor / OS noise ---
 .vscode/
