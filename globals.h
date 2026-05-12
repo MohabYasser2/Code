@@ -132,4 +132,10 @@ extern int    numCases[100];
 extern char* forIterator[100];
 extern int   forDepth;
 
+/* -------------------------------------------------------------------------
+ * Error flag - set to 1 by yyerror(). Checked in main() to return the
+ * correct exit code after yyparse() finishes (even with error recovery).
+ * ------------------------------------------------------------------------- */
+extern int hadError;
+
 #endif /* GLOBALS_H */

@@ -54,3 +54,6 @@ int     labelDepth = 0;              /* top-of-stack index for labelNames  */
 /* ---- per-for-loop state (parallel arrays indexed by forDepth) ---------- */
 char*   forIterator[100];            /* iterator variable name per level   */
 int     forDepth;                    /* current for-loop nesting depth     */
+
+/* ---- global error flag ------------------------------------------------- */
+int hadError = 0;                    /* set to 1 on first error            */
