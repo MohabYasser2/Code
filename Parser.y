@@ -53,6 +53,7 @@
  * %union - the C union Bison uses to carry semantic attributes through
  * the parser stack. Every token or non-terminal that needs to carry data
  * picks ONE of these slots via the <slot> annotation in %token or %type.
+ * so it has possible value types that lexer/parser can store
  *
  *   i  - signed int          (BOOL stored as 0/1, INTEGER, generic ints)
  *   f  - float               (FLOAT)
@@ -83,7 +84,7 @@
  * ------------------------------------------------------------------------- */
 
 /* Literals - each carries its parsed value. */
-%token <i> BOOL          /* 0 or 1 */
+%token <i> BOOL          /* 0 or 1 : means integar token uses union field i*/
 %token <i> INTEGER       /* atoi() result */
 %token <f> FLOAT         /* atof() result */
 %token <c> CHAR          /* decoded character */
@@ -93,7 +94,7 @@
 %token <s> TYPE          /* "bool" | "int" | "float" | "char" | "string" */
 %token <s> IDENTIFIER    /* any user-defined name */
 
-/* Keywords (no attribute - their identity IS the value). */
+/* Keywords (no attribute - their identity IS the value) those temrinals are the poossible ones to be recieved form lexer. */
 %token VOID
 %token IF ELSE
 %token SWITCH CASE DEFAULT
