@@ -221,3 +221,5 @@ When a field is not required (e.g. unary operations or jumps), it is denoted as 
 * **Function definitions** start with `PROC` followed by function name and end with `RET`.
 * **Function return values** are stored in special variable `tr`.
 * **Switch expressions** are stored in special variable `sr`.
+
+to run the gui command : python playground_server.py
