@@ -1,0 +1,129 @@
+/* =========================================================================
+ * utils.c - Implementations of the helpers declared in utils.h.
+ * ========================================================================= */
+
+#include "utils.h"
+
+/* -------------------------------------------------------------------------
+ * allocateTempVar
+ *
+ * Every time the compiler evaluates a sub-expression it needs a unique
+ * "slot" to hold the result. We call these "temporary variables": t0, t1, t2...
+ * They appear as the result field in operator quadruples, e.g. (+, a, b, t0).
+ *
+ * Parameter:
+ *   n — pointer to the global `tempVars` counter. We take a pointer instead
+ *       of a plain int so we can increment the ORIGINAL counter, not a copy.
+ *       After each call the caller will see *n increased by 1, guaranteeing
+ *       the next call produces a different name.
+ *
+ * Returns:
+ *   A heap-allocated string like "t0", "t7", "t23", owned by the caller.
+ * ------------------------------------------------------------------------- */
+char* allocateTempVar(int* n) {
+    char* label;
+
+    /* Step 1: figure out how many bytes the string "tN" needs.
+     * snprintf with NULL buffer and size 0 does NOT write anything —
+     * it just returns the number of characters that WOULD be written
+     * (excluding the null terminator).
+     * Example: if *n == 12, format "t%d" gives "t12" → size = 3. */
+    int size = snprintf(NULL, 0, "t%d", *n);
+
+    /* Step 2: allocate memory for the string.*/
+    label = malloc(size + 1);
+
+    /* Step 3: write the string "tN" into the allocated buffer. */
+    sprintf(label, "t%d", *n);
+
+    /* Step 4: increment the counter through the pointer so the next call
+     * gets a different number. (*n)++ reads *n first, then adds 1. */
+    (*n)++;
+
+    return label;
+}
+
+/* -------------------------------------------------------------------------
+ * writeSymbolToVisualiser
+ *
+ * Called every time a symbol (variable, constant, or function) is inserted
+ * into the symbol table. Appends one formatted row to SymbolTableVisualiser.out
+ * so the output looks like a readable table:
+ *
+ *   | name         | kind      | value        | type   | declaration line  |
+ *
+ * Parameters:
+ *   symbol — the Symbol to render (name, kind, isInit, value, declLine...)
+ *   depth  — current scope depth; the caller uses this to print leading
+ *            indentation spaces before calling this function.
+ * ------------------------------------------------------------------------- */
+void writeSymbolToVisualiser(Symbol* symbol, int depth) {
+    char* symbolType;          /* will hold the type as a printable string  */
+    char  valueData[100] = ""; /* buffer for the value column; starts empty */
+
+    /* --- Column "type": map the internal Type enum to a readable word --- */
+    switch (symbol->value.type) {
+        case TYPE_BOOL:   symbolType = "bool";   break;
+        case TYPE_INT:    symbolType = "int";    break;
+        case TYPE_FLOAT:  symbolType = "float";  break;
+        case TYPE_CHAR:   symbolType = "char";   break;
+        case TYPE_STRING: symbolType = "string"; break;
+        case TYPE_VOID:   symbolType = "void";   break;
+    }
+
+    /* --- Column "value": render the stored value as a string ----------- */
+
+    /* If the symbol was declared but never assigned (isInit == 0), or if it
+     * is a function (TYPE_VOID has no meaningful current value), print "-". */
+    if (!symbol->isInit || symbol->value.type == TYPE_VOID) {
+        strcpy(valueData, "-");
+    } else {
+        /* Value is a tagged union: we must read the field that matches the
+         * type tag, otherwise we would read undefined memory. */
+        switch (symbol->value.type) {
+            case TYPE_BOOL:
+                /* Booleans are stored as 0 or 1 in the int field.
+                 * Print the human-readable word instead of the number. */
+                snprintf(valueData, sizeof(valueData), "%s",
+                         symbol->value.data.i ? "true" : "false");
+                break;
+            case TYPE_INT:
+                snprintf(valueData, sizeof(valueData), "%d",
+                         symbol->value.data.i);
+                break;
+            case TYPE_FLOAT:
+                /* %.5f prints 5 decimal places for readability. */
+                snprintf(valueData, sizeof(valueData), "%.5f",
+                         symbol->value.data.f);
+                break;
+            case TYPE_CHAR:
+                snprintf(valueData, sizeof(valueData), "%c",
+                         symbol->value.data.c);
+                break;
+            case TYPE_STRING:
+                snprintf(valueData, sizeof(valueData), "%s",
+                         symbol->value.data.s);
+                break;
+            default:
+                strcpy(valueData, "-");
+                break;
+        }
+    }
+
+    /* --- Column "kind": map the Kind enum to a readable word ----------- */
+    char* symbolKind = symbol->kind == KIND_VAR   ? "variable"
+                     : symbol->kind == KIND_CONST ? "constant"
+                                                  : "function";
+
+    /* --- Write the full row to the visualiser file --------------------- */
+    /* %-Ns means: left-align the string in a field N characters wide.
+     * Every row uses the same widths so all columns line up into a table.
+     * %d is used for declLine because it is a plain integer.
+     *  | name         | kind      | value        | type   | declaration line   |
+        ------------------------------------------------------------------------
+        | x            | variable  | 5            | int    | 1                  | */
+    fprintf(symbolTableVisualiser,
+            "| %-12s | %-9s | %-12s | %-6s | %-17d |\n",
+            symbol->name, symbolKind, valueData,
+            symbolType, symbol->declLine);
+}

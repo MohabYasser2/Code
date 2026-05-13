@@ -53,7 +53,7 @@
  * %union - the C union Bison uses to carry semantic attributes through
  * the parser stack. Every token or non-terminal that needs to carry data
  * picks ONE of these slots via the <slot> annotation in %token or %type.
- * so it has possible value types that lexer/parser can store
+ * * so it has possible value types that lexer/parser can store
  *
  *   i  - signed int          (BOOL stored as 0/1, INTEGER, generic ints)
  *   f  - float               (FLOAT)
@@ -84,7 +84,7 @@
  * ------------------------------------------------------------------------- */
 
 /* Literals - each carries its parsed value. */
-%token <i> BOOL          /* 0 or 1 : means integar token uses union field i*/
+%token <i> BOOL          /* 0 or 1:  means integar token uses union field i */
 %token <i> INTEGER       /* atoi() result */
 %token <f> FLOAT         /* atof() result */
 %token <c> CHAR          /* decoded character */
@@ -94,7 +94,7 @@
 %token <s> TYPE          /* "bool" | "int" | "float" | "char" | "string" */
 %token <s> IDENTIFIER    /* any user-defined name */
 
-/* Keywords (no attribute - their identity IS the value) those temrinals are the poossible ones to be recieved form lexer. */
+/* Keywords (no attribute - their identity IS the value)  * so it has possible value types that lexer/parser can store */
 %token VOID
 %token IF ELSE
 %token SWITCH CASE DEFAULT
@@ -493,6 +493,12 @@ declaration : TYPE IDENTIFIER                           {
                                                             SymbolTable_insert(symbolTable, symbol);
                                                             writeSymbolToVisualiser(symbol, symbolTable->size);
                                                             lastSymbol = symbol;
+                                                            /* $4 is a Value* — a pointer to the struct that the expression
+                                                             * rule produced and passed upward.
+                                                             * $4->label is the name the expression goes by in the quadruple:
+                                                             *   int x = 5     -> $4->label = "5"   -> (=, 5, N/A, x)
+                                                             *   int x = a + b -> $4->label = "t0"  -> (=, t0, N/A, x)
+                                                             * $2 is the variable name (e.g. "x"). */
                                                             fprintf(quadruplesFile, "(=, %s, N/A, %s)\n", $4->label, $2);
                                                             tempVars = 0;
                                                         }
@@ -632,6 +638,9 @@ assignment : IDENTIFIER ASSIGN expression   {
                                                 }
                                                 /* The variable now holds a value - reads are valid from here. */
                                                 var->isInit = 1;
+                                                /* $1 = variable name (left side), $3 = expression result (right side).
+                                                 * e.g. x = 5     -> (=, 5, N/A, x)
+                                                 *      x = a + b -> (=, t0, N/A, x)  t0 is done in the expression*/
                                                 fprintf(quadruplesFile, "(=, %s, N/A, %s)\n", $3->label, $1);
                                                 tempVars = 0;       /* statement done, reset temps */
                                             }
@@ -698,43 +707,63 @@ iterator : expression   {
  * The else case juggles 2 labels at labelDepth-1 and labelDepth-2.
  * ------------------------------------------------------------------------- */
 if_header : IF OPENING_PARENTHESIS decision CLOSING_PARENTHESIS {
-                                                                    /* Reserve TWO labels:
-                                                                     *   [depth-2] = "LABELn"   - end-of-if (jump past else)
-                                                                     *   [depth-1] = "LABELn+1" - start of else / end-of-then
-                                                                     *
-                                                                     * Then emit the conditional jump that uses the second one. */
+                                                                    /* Reserve LABEL0 (end-of-if) and store it in labelNames[labelDepth].
+                                                                     * labelDepth acts like a stack index — we push by incrementing it. */
                                                                     labelNames[labelDepth] = malloc(20);
                                                                     sprintf(labelNames[labelDepth], "LABEL%d", labels);
-                                                                    labels++;
-                                                                    labelDepth++;
+                                                                    labels++;       /* next label will get a different number */
+                                                                    labelDepth++;   /* push: move to next slot in the stack */
+
+                                                                    /* Reserve LABEL1 (else-entry / end-of-then) in the next slot. */
                                                                     labelNames[labelDepth] = malloc(20);
                                                                     sprintf(labelNames[labelDepth], "LABEL%d", labels);
+
+                                                                    /* Emit the conditional jump to LABEL1.
+                                                                     * JZ = Jump if Zero = jump if condition is false.
+                                                                     * e.g. if (x < 10) -> (JZ, LABEL1, N/A, N/A) */
                                                                     fprintf(quadruplesFile, "(JZ, LABEL%d, N/A, N/A)\n", labels);
-                                                                    labels++;
-                                                                    labelDepth++;
+                                                                    labels++;       /* next label will get a different number */
+                                                                    labelDepth++;   /* push: now labelDepth = 2 */
                                                                 }
           ;
 
 if_statement : if_header block      {
-                                        /* No else: just define the "end" label that JZ jumps to. */
+                                        /* No else case: e.g. if (x < 10) { y = 1; }
+                                         *   (<, x, 10, t0)
+                                         *   (JZ, LABEL1, N/A, N/A)
+                                         *   (=, 1, N/A, y)
+                                         *   LABEL1:                 <- defined here
+                                         *
+                                         * labelDepth is 2 after if_header pushed twice.
+                                         * labelDepth - 1 = 1, so labelNames[1] = LABEL1 (else-entry label).
+                                         * We define it here so JZ lands right after the body. */
                                         fprintf(quadruplesFile, "%s:\n", labelNames[labelDepth - 1]);
-                                        labelDepth--;
-                                        labelDepth--;
+                                        labelDepth--;   /* pop LABEL1 */
+                                        labelDepth--;   /* pop LABEL0 (was reserved but unused in no-else case) */
                                     }
              | if_header block ELSE {
-                                        /* End of THEN branch: skip past the else, then define
-                                         * the else-entry label. The "end-of-if" label is still
-                                         * reserved (at depth-2) and will be defined after the
-                                         * else block below. */
+                                        /* With else case, end of then-body: e.g. if (x < 10) { y = 1; } else { y = 2; }
+                                         *
+                                         * labelDepth is 2. labelDepth - 2 = 0 -> labelNames[0] = LABEL0 (end-of-if).
+                                         * labelDepth - 1 = 1 -> labelNames[1] = LABEL1 (else-entry).
+                                         *
+                                         * Emit jump to LABEL0 so then-body skips past the else block. */
                                         fprintf(quadruplesFile, "(JMP, %s, N/A, N/A)\n", labelNames[labelDepth - 2]);
+                                        /* Define LABEL1 here — this is where JZ lands, i.e. the else block starts. */
                                         fprintf(quadruplesFile, "%s:\n", labelNames[labelDepth - 1]);
                                     }
                block                {
-                                        /* End of ELSE branch: define the end-of-if label and
-                                         * pop the two reserved label slots. */
+                                        /* End of else-body: define LABEL0 here — end of the whole if-else.
+                                         *   (<, x, 10, t0)
+                                         *   (JZ, LABEL1, N/A, N/A)
+                                         *   (=, 1, N/A, y)
+                                         *   (JMP, LABEL0, N/A, N/A)
+                                         *   LABEL1:
+                                         *   (=, 2, N/A, y)
+                                         *   LABEL0:                 <- defined here */
                                         fprintf(quadruplesFile, "%s:\n", labelNames[labelDepth - 2]);
-                                        labelDepth--;
-                                        labelDepth--;
+                                        labelDepth--;   /* pop LABEL1 */
+                                        labelDepth--;   /* pop LABEL0 */
                                     }
              ;
 
@@ -759,22 +788,33 @@ if_statement : if_header block      {
  * as a stack of "current switch state", letting switches nest properly.
  * ------------------------------------------------------------------------- */
 switch_header : SWITCH OPENING_PARENTHESIS expression CLOSING_PARENTHESIS   {
-                                                                                /* Save the discriminant's type+value+label as switchExpr[depth]. */
+                                                                                /* $3 is the switch expression, e.g. x in switch(x).
+                                                                                 * Save it in switchExpr[switchDepth] so case_header can compare against it.
+                                                                                 * Its label is overwritten to "sr" because in the IR all cases compare against "sr". */
                                                                                 switchExpr[switchDepth] = malloc(sizeof(Value));
                                                                                 switchExpr[switchDepth]->type = $3->type;
                                                                                 switchExpr[switchDepth]->data = $3->data;
                                                                                 switchExpr[switchDepth]->label = malloc(3);
                                                                                 switchExpr[switchDepth]->label = "sr";
-                                                                                /* Remember where END_SWITCH_LABEL lives in labelNames[]. */
+
+                                                                                /* Save the current labelDepth so every case_statement knows
+                                                                                 * where END_SWITCH_LABEL is in the labelNames stack. */
                                                                                 switchLabel[switchDepth] = labelDepth;
-                                                                                switchDepth++;
-                                                                                /* Reserve END_SWITCH_LABEL. Each case will JMP to it. */
+                                                                                switchDepth++;  /* push switch depth — allows nested switches */
+
+                                                                                /* Reserve END_SWITCH_LABEL (e.g. LABEL0).
+                                                                                 * Every case will JMP here when it finishes (implicit break). */
                                                                                 labelNames[labelDepth] = malloc(20);
                                                                                 sprintf(labelNames[labelDepth], "LABEL%d", labels);
-                                                                                labelDepth++;
-                                                                                labels++;
+                                                                                labelDepth++;   /* push */
+                                                                                labels++;       /* next label gets a different number */
+
                                                                                 $$ = switchExpr[switchDepth - 1];
-                                                                                /* Save old "sr", then load new discriminant. */
+
+                                                                                /* Save the old value of "sr" in case this is a nested switch,
+                                                                                 * then load the new switch expression into "sr".
+                                                                                 * e.g. switch (x) ->  (PUSH, sr, N/A, N/A)
+                                                                                 *                     (=, x, N/A, sr) */
                                                                                 fprintf(quadruplesFile, "(PUSH, sr, N/A, N/A)\n");
                                                                                 fprintf(quadruplesFile, "(=, %s, N/A, sr)\n", $3->label);
                                                                                 tempVars = 0;
@@ -791,12 +831,19 @@ switch_statement : switch_header SCOPE_START case_statements SCOPE_END          
                                                                                                 yyerror("Invalid case statement: type of expression inside the switch statement does not match the types of expressions inside the case statements.");
                                                                                             }
                                                                                         }
+                                                                                        /* All cases are done. Pop the switch and label stacks.
+                                                                                         * switchDepth-- first so switchLabel[switchDepth] gives the right index. */
                                                                                         switchDepth--;
                                                                                         labelDepth--;
+                                                                                        /* Define END_SWITCH_LABEL here — all cases JMP'd to this point.
+                                                                                         * switchLabel[switchDepth] holds the labelDepth index where we stored it.
+                                                                                         * e.g. LABEL0:  */
                                                                                         fprintf(quadruplesFile, "%s:\n", labelNames[switchLabel[switchDepth]]);
+                                                                                        /* Restore the old "sr" that was saved by PUSH in switch_header. */
                                                                                         fprintf(quadruplesFile, "(POP, N/A, N/A, sr)\n");
                                                                                     }
                  | switch_header SCOPE_START case_statements default_case SCOPE_END {
+                                                                                        /* Same as above but with a default case — the quadruples are identical. */
                                                                                         for (int i = 0; i < numCases[switchDepth]; i++) {
                                                                                             if ($1->type != ($3)[i]->type) {
                                                                                                 if (($1->type == TYPE_INT || $1->type == TYPE_FLOAT) && (($3)[i]->type == TYPE_INT || ($3)[i]->type == TYPE_FLOAT)) {
@@ -841,24 +888,34 @@ case_statements : case_statements case_statement    {
  * ------------------------------------------------------------------------- */
 case_header : CASE OPENING_PARENTHESIS expression CLOSING_PARENTHESIS   {
                                                                             $$ = $3;
-                                                                            /* Emit the (==, sr, value, temp) compare-and-store. */
+                                                                            /* Compare sr (the switch value) with this case's value.
+                                                                             * allocateTempVar gives a fresh name (t0, t1...) to store the result.
+                                                                             * e.g. case (1) -> (==, sr, 1, t0) */
                                                                             char* temp = allocateTempVar(&tempVars);
                                                                             fprintf(quadruplesFile, "(==, %s, %s, %s)\n", switchExpr[switchDepth - 1]->label, $3->label, temp);
-                                                                            /* Reserve NEXT_CASE_LABEL and jump there if not equal. */
+
+                                                                            /* Reserve NEXT_CASE_LABEL — if comparison result is false (zero),
+                                                                             * skip this case and try the next one.
+                                                                             * e.g. (JZ, LABEL1, N/A, N/A) */
                                                                             labelNames[labelDepth] = malloc(20);
                                                                             sprintf(labelNames[labelDepth], "LABEL%d", labels);
                                                                             fprintf(quadruplesFile, "(JZ, LABEL%d, N/A, N/A)\n", labels);
-                                                                            labelDepth++;
-                                                                            labels++;
+                                                                            labelDepth++;   /* push NEXT_CASE_LABEL */
+                                                                            labels++;       /* next label gets a different number */
                                                                         }
 
 case_statement : case_header block  {
                                         $$ = $1;
-                                        /* Implicit "break": jump to the end of the whole switch. */
+                                        /* Case body is done. Jump to END_SWITCH_LABEL (implicit break).
+                                         * switchLabel[switchDepth - 1] holds the labelDepth index of END_SWITCH_LABEL.
+                                         * e.g. (JMP, LABEL0, N/A, N/A) */
                                         fprintf(quadruplesFile, "(JMP, %s, N/A, N/A)\n", labelNames[switchLabel[switchDepth - 1]]);
-                                        /* Define NEXT_CASE_LABEL right here. */
+
+                                        /* Define NEXT_CASE_LABEL here — this is where JZ lands if this case didn't match.
+                                         * labelDepth - 1 points to the top of the stack = NEXT_CASE_LABEL.
+                                         * e.g. LABEL1: */
                                         fprintf(quadruplesFile, "%s:\n", labelNames[labelDepth - 1]);
-                                        labelDepth--;
+                                        labelDepth--;   /* pop NEXT_CASE_LABEL */
                                     }
                ;
 
@@ -878,21 +935,23 @@ default_case : DEFAULT block
  *   for_to   - emits comparison + JZ to LOOP_END
  *   for_loop - the body + post-increment + JMP back to LOOP_TOP
  *
- * IR layout produced:
- *      (=, E1, N/A, i)
- *   LOOP_TOP:
- *      (<, i, E2, t)
- *      (JZ, LOOP_END, N/A, N/A)
- *      ... body ...
- *      (+, i, step_or_1, i)             ; increment
- *      (JMP, LOOP_TOP, N/A, N/A)
- *   LOOP_END:
+ *for i from (1) to (10) step (2) { y = y + 1; }
+ *(=, 1, N/A, i)
+ *LABEL0:
+ *(<, i, 10, t0)
+ *(JZ, LABEL1, N/A, N/A)
+ *(+, y, 1, t0)
+ *(=, t0, N/A, y)
+ *(+, i, 2, i)
+ *(JMP, LABEL0, N/A, N/A)
+ *LABEL1:
  *
  * The for-loop iterator must already be a declared `int` variable
  * (not a constant, not a function).  forIterator[] is a stack that
  * allows nested for-loops to remember their iterator names.
  * ------------------------------------------------------------------------- */
 for_from : FOR IDENTIFIER FROM OPENING_PARENTHESIS iterator CLOSING_PARENTHESIS {
+                                                                                    /* Member 2: i must exist, must be a variable, must be TYPE_INT. */
                                                                                     Symbol* var = SymbolTable_get(symbolTable, $2);
                                                                                     if (!var) {
                                                                                         fprintf(semanticAnalysisFile, "Line %d: Invalid expression: cannot find symbol.", line);
@@ -907,44 +966,88 @@ for_from : FOR IDENTIFIER FROM OPENING_PARENTHESIS iterator CLOSING_PARENTHESIS 
                                                                                         yyerror("Invalid statement: cannot use a non-integer variable as a for loop iterator.");
                                                                                     }
                                                                                     var->isUsed = 1;
+
+                                                                                    /* $5 = start expression, $2 = iterator name.
+                                                                                     * Set iterator to the start value.
+                                                                                     * e.g. for i from (1) -> (=, 1, N/A, i) */
                                                                                     fprintf(quadruplesFile, "(=, %s, N/A, %s)\n", $5->label, $2);
+
+                                                                                    /* Reserve and IMMEDIATELY define LOOP_TOP.
+                                                                                     * Unlike if/switch we define it right now because we need to
+                                                                                     * jump BACK to it at the end of every iteration.
+                                                                                     * e.g. LABEL0: */
                                                                                     labelNames[labelDepth] = malloc(20);
                                                                                     sprintf(labelNames[labelDepth], "LABEL%d", labels);
                                                                                     fprintf(quadruplesFile, "LABEL%d:\n", labels);
-                                                                                    labelDepth++;
-                                                                                    labels++;
+                                                                                    labelDepth++;   /* push LOOP_TOP */
+                                                                                    labels++;       /* next label gets a different number */
+
+                                                                                    /* Save the iterator name so for_to and for_loop can use it.
+                                                                                     * forDepth is like a stack index — each nested for loop gets
+                                                                                     * its own slot. e.g. outer loop: forIterator[0]="i", forDepth=1
+                                                                                     *                     inner loop: forIterator[1]="j", forDepth=2 */
                                                                                     forIterator[forDepth] = malloc(50);
                                                                                     strcpy(forIterator[forDepth], var->name);
-                                                                                    forDepth++;
+                                                                                    forDepth++;     /* move to next slot for any inner loop */
                                                                                 }
          ;
 
 for_to : TO OPENING_PARENTHESIS iterator CLOSING_PARENTHESIS    {
+                                                                    /* Check if iterator < end value. forIterator[forDepth - 1] is the
+                                                                     * iterator name saved by for_from. $3 = end expression.
+                                                                     * e.g. to (10) -> (<, i, 10, t0) */
                                                                     char* temp = allocateTempVar(&tempVars);
                                                                     fprintf(quadruplesFile, "(<, %s, %s, %s)\n", forIterator[forDepth - 1], $3->label, temp);
+
+                                                                    /* Reserve LOOP_END — if i < end is false (zero), exit the loop.
+                                                                     * e.g. (JZ, LABEL1, N/A, N/A) */
                                                                     labelNames[labelDepth] = malloc(20);
                                                                     sprintf(labelNames[labelDepth], "LABEL%d", labels);
                                                                     fprintf(quadruplesFile, "(JZ, LABEL%d, N/A, N/A)\n", labels);
-                                                                    labelDepth++;
-                                                                    labels++;
+                                                                    labelDepth++;   /* push LOOP_END */
+                                                                    labels++;       /* next label gets a different number */
                                                                 }
        ;
 
 for_loop : for_from for_to block                                                        {
+                                                                                            /* Body is done. Pop the iterator stack first so forIterator[forDepth]
+                                                                                             * gives the current iterator name. */
                                                                                             forDepth--;
+
+                                                                                            /*increment iterator by 1. e.g. (+, i, 1, i) */
                                                                                             fprintf(quadruplesFile, "(+, %s, 1, %s)\n", forIterator[forDepth], forIterator[forDepth]);
+
+                                                                                            /* Jump back to LOOP_TOP to re-check the condition.
+                                                                                             * labelDepth - 2 = 0 -> labelNames[0] = LOOP_TOP (LABEL0).
+                                                                                             * e.g. (JMP, LABEL0, N/A, N/A) */
                                                                                             fprintf(quadruplesFile, "(JMP, %s, N/A, N/A)\n", labelNames[labelDepth - 2]);
+
+                                                                                            /* Define LOOP_END here — this is where JZ lands when loop exits.
+                                                                                             * labelDepth - 1 = 1 -> labelNames[1] = LOOP_END (LABEL1).
+                                                                                             * e.g. LABEL1: */
                                                                                             fprintf(quadruplesFile, "%s:\n", labelNames[labelDepth - 1]);
-                                                                                            labelDepth--;
-                                                                                            labelDepth--;
+                                                                                            labelDepth--;   /* pop LOOP_END */
+                                                                                            labelDepth--;   /* pop LOOP_TOP */
                                                                                         }
          | for_from for_to STEP OPENING_PARENTHESIS iterator CLOSING_PARENTHESIS block  {
+                                                                                            /* Body is done. Pop the iterator stack. */
                                                                                             forDepth--;
+
+                                                                                            /* With step: increment iterator by $5 (the step expression).
+                                                                                             * e.g. step (2) -> (+, i, 2, i) */
                                                                                             fprintf(quadruplesFile, "(+, %s, %s, %s)\n", forIterator[forDepth], $5->label, forIterator[forDepth]);
+
+                                                                                            /* Jump back to LOOP_TOP.
+                                                                                             * labelDepth - 2 -> LOOP_TOP (LABEL0).
+                                                                                             * e.g. (JMP, LABEL0, N/A, N/A) */
                                                                                             fprintf(quadruplesFile, "(JMP, %s, N/A, N/A)\n", labelNames[labelDepth - 2]);
+
+                                                                                            /* Define LOOP_END.
+                                                                                             * labelDepth - 1 -> LOOP_END (LABEL1).
+                                                                                             * e.g. LABEL1: */
                                                                                             fprintf(quadruplesFile, "%s:\n", labelNames[labelDepth - 1]);
-                                                                                            labelDepth--;
-                                                                                            labelDepth--;
+                                                                                            labelDepth--;   /* pop LOOP_END */
+                                                                                            labelDepth--;   /* pop LOOP_TOP */
                                                                                         }
          ;
 
@@ -955,42 +1058,56 @@ for_loop : for_from for_to block                                                
  *   while_expression - emits the condition, then JZ LOOP_END
  *   while_loop body  - body, then JMP LOOP_TOP, then LOOP_END:
  *
- * IR layout:
- *   LOOP_TOP:
- *      (cond, ...)
- *      (JZ, LOOP_END, ...)
- *      ... body ...
- *      (JMP, LOOP_TOP, ...)
- *   LOOP_END:
+ *while (x < 10) { y = y + 1; }
+ *LABEL0:                        ← LOOP_TOP, defined by while_header
+ *(<, x, 10, t0)                 ← condition evaluated
+ *(JZ, LABEL1, N/A, N/A)        ← if false, exit loop
+ *(+, y, 1, t0)                  ← body
+ *(=, t0, N/A, y)
+ *(JMP, LABEL0, N/A, N/A)       ← go back and re-check condition
+ *LABEL1:                        ← LOOP_END, defined by while_loop
  * ------------------------------------------------------------------------- */
 while_header : WHILE            {
-                                    /* Reserve & define LOOP_TOP right now -
-                                     * we'll JMP back here at the bottom. */
+                                    /* Fires as soon as the WHILE keyword is seen.
+                                     * Reserve and IMMEDIATELY define LOOP_TOP — the condition check label0
+                                     * happens here at the top, and we JMP back here every iteration. */
                                     labelNames[labelDepth] = malloc(20);
                                     sprintf(labelNames[labelDepth], "LABEL%d", labels);
                                     fprintf(quadruplesFile, "LABEL%d:\n", labels);
-                                    labelDepth++;
-                                    labels++;
+                                    labelDepth++;   /* push LOOP_TOP */
+                                    labels++;       /* next label gets a different number */
                                 }
                while_expression
              ;
 
 while_expression : OPENING_PARENTHESIS decision CLOSING_PARENTHESIS {
-                                                                        /* Reserve LOOP_END and emit the exit jump. */
+                                                                        /* Fires after the condition is evaluated.
+                                                                         * Reserve LOOP_END — if condition is false (zero), exit the loop.
+                                                                         * e.g. while (x < 10) -> (JZ, LABEL1, N/A, N/A) */
                                                                         labelNames[labelDepth] = malloc(20);
                                                                         sprintf(labelNames[labelDepth], "LABEL%d", labels);
                                                                         fprintf(quadruplesFile, "(JZ, LABEL%d, N/A, N/A)\n", labels);
-                                                                        labelDepth++;
-                                                                        labels++;
+                                                                        labelDepth++;   /* push LOOP_END */
+                                                                        labels++;       /* next label gets a different number */
                                                                     }
                  ;
 
 while_loop : while_header block {
-                                    /* End of body: jump back to LOOP_TOP, then define LOOP_END. */
+                                    /* Body is done. labelDepth is 2:
+                                     *   labelNames[0] = LABEL0 = LOOP_TOP  (pushed by while_header)
+                                     *   labelNames[1] = LABEL1 = LOOP_END  (pushed by while_expression)
+                                     *
+                                     * Jump back to LOOP_TOP to re-check the condition.
+                                     * labelDepth - 2 = 0 -> labelNames[0] = LOOP_TOP.
+                                     * e.g. (JMP, LABEL0, N/A, N/A) */
                                     fprintf(quadruplesFile, "(JMP, %s, N/A, N/A)\n", labelNames[labelDepth - 2]);
+
+                                    /* Define LOOP_END — this is where JZ lands when condition is false.
+                                     * labelDepth - 1 = 1 -> labelNames[1] = LOOP_END.
+                                     * e.g. LABEL1: */
                                     fprintf(quadruplesFile, "%s:\n", labelNames[labelDepth - 1]);
-                                    labelDepth--;
-                                    labelDepth--;
+                                    labelDepth--;   /* pop LOOP_END */
+                                    labelDepth--;   /* pop LOOP_TOP */
                                 }
            ;
 
@@ -1001,22 +1118,34 @@ while_loop : while_header block {
  *
  * Test happens AT THE BOTTOM, so the body always runs at least once.
  *
- * IR layout:
- *   LOOP_TOP:
- *      ... body ...
- *      (cond ...)
- *      (JZ, LOOP_TOP, ...)         ; if condition is FALSE, loop again
+ * repeat { y = y + 1; } until (y == 5)
+ *LABEL0:                       ← LOOP_TOP, defined immediately
+ *(+, y, 1, t0)                 ← body always runs at least once
+ *(=, t0, N/A, y)
+ *(==, y, 5, t1)                ← condition evaluated at the bottom
+ *(JZ, LABEL0, N/A, N/A)       ← if false → loop again, if true → exit
  * ------------------------------------------------------------------------- */
 repeat_loop : REPEAT                                                        {
+                                                                                /* Fires as soon as REPEAT is seen — before the body.
+                                                                                 * Reserve and IMMEDIATELY define LOOP_TOP.
+                                                                                 * The body runs first, condition is checked at the bottom.
+                                                                                 * e.g. LABEL0: */
                                                                                 labelNames[labelDepth] = malloc(20);
                                                                                 sprintf(labelNames[labelDepth], "LABEL%d", labels);
                                                                                 fprintf(quadruplesFile, "LABEL%d:\n", labels);
-                                                                                labelDepth++;
-                                                                                labels++;
+                                                                                labelDepth++;   /* push LOOP_TOP */
+                                                                                labels++;       /* next label gets a different number */
                                                                             }
               block UNTIL OPENING_PARENTHESIS decision CLOSING_PARENTHESIS  {
+                                                                                /* Body and condition are done. labelDepth is 1:
+                                                                                 *   labelNames[0] = LABEL0 = LOOP_TOP (pushed by REPEAT action above)
+                                                                                 *
+                                                                                 * If condition is false (zero), jump back to LOOP_TOP and run again.
+                                                                                 * If condition is true, JZ does NOT jump — loop exits naturally.
+                                                                                 * labelDepth - 1 = 0 -> labelNames[0] = LOOP_TOP.
+                                                                                 * e.g. repeat { y = y+1; } until (y == 5) -> (JZ, LABEL0, N/A, N/A) */
                                                                                 fprintf(quadruplesFile, "(JZ, %s, N/A, N/A)\n", labelNames[labelDepth - 1]);
-                                                                                labelDepth--;
+                                                                                labelDepth--;   /* pop LOOP_TOP */
                                                                             }
             ;
 
@@ -1046,6 +1175,7 @@ repeat_loop : REPEAT                                                        {
  * immediately so the IR has a clean header.
  * ------------------------------------------------------------------------- */
 function_header : VOID IDENTIFIER   {
+                                        /* reject duplicate function name in current scope. */
                                         if (ScopeSymbolTable_get(symbolTable->head, $2)) {
                                             fprintf(semanticAnalysisFile, "Line %d: Invalid declaration: cannot redeclare symbol.", line);
                                             yyerror("Invalid declaration: cannot redeclare symbol.");
@@ -1053,10 +1183,16 @@ function_header : VOID IDENTIFIER   {
                                         Value value;
                                         value.type = TYPE_VOID;
                                         value.data.i = 0;
+                                        /* Build a Symbol for this function and pass it up as $$.
+                                         * function_definition will use it to insert into the symbol table. */
                                         $$ = Symbol_construct($2, KIND_FUNC, 1, line, value, NULL, 0);
+                                        /* Mark the start of this function in the IR.
+                                         * $2 = function name. e.g. void print -> PROC print */
                                         fprintf(quadruplesFile, "PROC %s\n", $2);
                                     }
                 | TYPE IDENTIFIER   {
+                                        /* Same as VOID case but for typed functions (int, float, bool...).
+                                         * Member 2 maps the type string to a Type enum value. */
                                         if (ScopeSymbolTable_get(symbolTable->head, $2)) {
                                             fprintf(semanticAnalysisFile, "Line %d: Invalid declaration: cannot redeclare symbol.", line);
                                             yyerror("Invalid declaration: cannot redeclare symbol.");
@@ -1087,6 +1223,7 @@ function_header : VOID IDENTIFIER   {
                                             yyerror("Invalid declaration: cannot create a function of unknown type.");
                                         }
                                         $$ = Symbol_construct($2, KIND_FUNC, 1, line, value, NULL, 0);
+                                        /* e.g. int add -> PROC add */
                                         fprintf(quadruplesFile, "PROC %s\n", $2);
                                     }
                 ;
@@ -1149,11 +1286,18 @@ function_definition : function_header OPENING_PARENTHESIS parameter_list CLOSING
                                                                                                     SymbolTable_insert(symbolTable, symbol);
                                                                                                     writeSymbolToVisualiser(symbol, symbolTable->size);
                                                                                                     lastSymbol = symbol;
+                                                                                                    /* Pop parameters in REVERSE order — the caller pushed them
+                                                                                                     * left to right, so the last one is on top of the stack.
+                                                                                                     * e.g. int add(int a, int b) ->
+                                                                                                     *   (POP, N/A, N/A, b)
+                                                                                                     *   (POP, N/A, N/A, a) */
                                                                                                     for (int i = numParams - 1; i >= 0; i--) {
                                                                                                         fprintf(quadruplesFile, "(POP, N/A, N/A, %s)\n", ($3)[i]->name);
                                                                                                     }
                                                                                                 }
                        block                                                                    {
+                                                                                                    /* Body is done. Mark the end of this function in the IR.
+                                                                                                     * e.g. (RET, N/A, N/A, N/A) */
                                                                                                     fprintf(quadruplesFile, "(RET, N/A, N/A, N/A)\n");
                                                                                                 }
                      | function_header OPENING_PARENTHESIS CLOSING_PARENTHESIS                  {
@@ -1214,8 +1358,11 @@ function_definition : function_header OPENING_PARENTHESIS parameter_list CLOSING
                                                                                                     SymbolTable_insert(symbolTable, symbol);
                                                                                                     writeSymbolToVisualiser(symbol, symbolTable->size);
                                                                                                     lastSymbol = symbol;
+                                                                                                    /* No parameters — no POP instructions needed. */
                                                                                                 }
                        block                                                                    {
+                                                                                                    /* Body is done. Mark the end of this function in the IR.
+                                                                                                     * e.g. (RET, N/A, N/A, N/A) */
                                                                                                     fprintf(quadruplesFile, "(RET, N/A, N/A, N/A)\n");
                                                                                                 }
                      ;
@@ -1287,7 +1434,7 @@ parameter : TYPE IDENTIFIER {
  *
  * Emits (=, expr, N/A, tr) - the "tr" special variable is read by the
  * caller after the (CALL, ...) instruction. The actual (RET, ...) is
- * emitted by function_definition at the function's closing '}'.
+ * emitted by function_definition at the function's closing braces.
  *
  * Known limitation: an early `return` mid-function only stores into
  * "tr" - it does NOT emit a (RET) jump. So execution would fall through
@@ -1306,6 +1453,14 @@ return_statement : RETURN expression    {
                                                 fprintf(semanticAnalysisFile, "Line %d: Invalid statement: returned expression does not match function return type.", line);
                                                 yyerror("Invalid statement: returned expression does not match function return type.");
                                             }
+                                            /* $2 = the expression after return (e.g. a + b).
+                                             * $2->label = the label of that expression (e.g. "t0").
+                                             * Store the result into tr — the special return register.
+                                             * The caller reads tr after (CALL, ...) to get the value.
+                                             * e.g. return a + b -> (=, t0, N/A, tr)
+                                             *
+                                             * Note: (RET) is NOT emitted here — it is emitted by
+                                             * function_definition after the closing braces of the function. */
                                             fprintf(quadruplesFile, "(=, %s, N/A, tr)\n", $2->label);
                                         }
                  ;
@@ -1378,9 +1533,17 @@ function_call : IDENTIFIER OPENING_PARENTHESIS argument_list CLOSING_PARENTHESIS
                                                                                                 break;
                                                                                         }
                                                                                         func->isUsed = 1;
+                                                                                        /* Push each argument onto the stack in LEFT to RIGHT order.
+                                                                                         * The callee will POP them in reverse to get them into the right variables.
+                                                                                         * ($3)[i]->label = the label of the i-th argument (e.g. "3", "x", "t0").
+                                                                                         * e.g. add(3, 5) -> (PUSH, 3, N/A, N/A)
+                                                                                         *                   (PUSH, 5, N/A, N/A) */
                                                                                         for (int i = 0; i < numArgs; i++) {
                                                                                             fprintf(quadruplesFile, "(PUSH, %s, N/A, N/A)\n", ($3)[i]->label);
                                                                                         }
+                                                                                        /* Transfer control to the function. After it returns,
+                                                                                         * the result will be in tr.
+                                                                                         * $1 = function name. e.g. (CALL, add, N/A, N/A) */
                                                                                         fprintf(quadruplesFile, "(CALL, %s, N/A, N/A)\n", $1);
                                                                                     }
               | IDENTIFIER OPENING_PARENTHESIS CLOSING_PARENTHESIS                  {
@@ -1416,6 +1579,9 @@ function_call : IDENTIFIER OPENING_PARENTHESIS argument_list CLOSING_PARENTHESIS
                                                                                                 break;
                                                                                         }
                                                                                         func->isUsed = 1;
+                                                                                        /* No arguments — no PUSH instructions needed.
+                                                                                         * Just call the function directly.
+                                                                                         * e.g. print() -> (CALL, print, N/A, N/A) */
                                                                                         fprintf(quadruplesFile, "(CALL, %s, N/A, N/A)\n", $1);
                                                                                     }
               ;
@@ -1488,6 +1654,7 @@ logical_expression : logical_expression OR logical_conjunction  {
                                                                     $$ = malloc(sizeof(Value));
                                                                     $$->type = TYPE_BOOL;
                                                                     $$->data.i = $1->data.i || $3->data.i;
+                                                                    /* Mint a temp and emit. e.g. a | b -> (|, a, b, t0) */
                                                                     $$->label = allocateTempVar(&tempVars);
                                                                     fprintf(quadruplesFile, "(|, %s, %s, %s)\n", $1->label, $3->label, $$->label);
                                                                 }
@@ -1505,6 +1672,7 @@ logical_conjunction : logical_conjunction AND logical_comparison    {
                                                                         $$ = malloc(sizeof(Value));
                                                                         $$->type = TYPE_BOOL;
                                                                         $$->data.i = $1->data.i && $3->data.i;
+                                                                        /* Mint a temp and emit. e.g. a & b -> (&, a, b, t0) */
                                                                         $$->label = allocateTempVar(&tempVars);
                                                                         fprintf(quadruplesFile, "(&, %s, %s, %s)\n", $1->label, $3->label, $$->label);
                                                                     }
@@ -1542,6 +1710,7 @@ logical_comparison : logical_comparison EQ mathematical_expression      {
                                                                                 fprintf(semanticAnalysisFile, "Line %d: Invalid expression: cannot compare between different-typed expressions.", line);
                                                                                 yyerror("Invalid expression: cannot compare between different-typed expressions.");
                                                                             }
+                                                                            /* Result is always bool. e.g. a == b -> (==, a, b, t0) */
                                                                             $$->label = allocateTempVar(&tempVars);
                                                                             fprintf(quadruplesFile, "(==, %s, %s, %s)\n", $1->label, $3->label, $$->label);
                                                                         }
@@ -1570,6 +1739,7 @@ logical_comparison : logical_comparison EQ mathematical_expression      {
                                                                                 fprintf(semanticAnalysisFile, "Line %d: Invalid expression: cannot compare between different-typed expressions.", line);
                                                                                 yyerror("Invalid expression: cannot compare between different-typed expressions.");
                                                                             }
+                                                                            /* Result is always bool. e.g. a != b -> (!=, a, b, t0) */
                                                                             $$->label = allocateTempVar(&tempVars);
                                                                             fprintf(quadruplesFile, "(!=, %s, %s, %s)\n", $1->label, $3->label, $$->label);
                                                                         }
@@ -1588,6 +1758,7 @@ logical_comparison : logical_comparison EQ mathematical_expression      {
                                                                                 fprintf(semanticAnalysisFile, "Line %d: Invalid expression: cannot compare between boolean expressions, string expressions, or different-typed expressions.", line);
                                                                                 yyerror("Invalid expression: cannot compare between boolean expressions, string expressions, or different-typed expressions.");
                                                                             }
+                                                                            /* Result is always bool. e.g. a < b -> (<, a, b, t0) */
                                                                             $$->label = allocateTempVar(&tempVars);
                                                                             fprintf(quadruplesFile, "(<, %s, %s, %s)\n", $1->label, $3->label, $$->label);
                                                                         }
@@ -1606,6 +1777,7 @@ logical_comparison : logical_comparison EQ mathematical_expression      {
                                                                                 fprintf(semanticAnalysisFile, "Line %d: Invalid expression: cannot compare between boolean expressions, string expressions, or different-typed expressions.", line);
                                                                                 yyerror("Invalid expression: cannot compare between boolean expressions, string expressions, or different-typed expressions.");
                                                                             }
+                                                                            /* Result is always bool. e.g. a > b -> (>, a, b, t0) */
                                                                             $$->label = allocateTempVar(&tempVars);
                                                                             fprintf(quadruplesFile, "(>, %s, %s, %s)\n", $1->label, $3->label, $$->label);
                                                                         }
@@ -1624,6 +1796,7 @@ logical_comparison : logical_comparison EQ mathematical_expression      {
                                                                                 fprintf(semanticAnalysisFile, "Line %d: Invalid expression: cannot compare between boolean expressions, string expressions, or different-typed expressions.", line);
                                                                                 yyerror("Invalid expression: cannot compare between boolean expressions, string expressions, or different-typed expressions.");
                                                                             }
+                                                                            /* Result is always bool. e.g. a <= b -> (<=, a, b, t0) */
                                                                             $$->label = allocateTempVar(&tempVars);
                                                                             fprintf(quadruplesFile, "(<=, %s, %s, %s)\n", $1->label, $3->label, $$->label);
                                                                         }
@@ -1642,6 +1815,7 @@ logical_comparison : logical_comparison EQ mathematical_expression      {
                                                                                 fprintf(semanticAnalysisFile, "Line %d: Invalid expression: cannot compare between boolean expressions, string expressions, or different-typed expressions.", line);
                                                                                 yyerror("Invalid expression: cannot compare between boolean expressions, string expressions, or different-typed expressions.");
                                                                             }
+                                                                            /* Result is always bool. e.g. a >= b -> (>=, a, b, t0) */
                                                                             $$->label = allocateTempVar(&tempVars);
                                                                             fprintf(quadruplesFile, "(>=, %s, %s, %s)\n", $1->label, $3->label, $$->label);
                                                                         }
@@ -1658,13 +1832,18 @@ mathematical_expression : mathematical_expression PLUS mathematical_term    {
                                                                                     yyerror("Invalid expression: cannot perform an addition operation between non-numeric expressions.");
                                                                                 }
                                                                                 $$ = malloc(sizeof(Value));
+                                                                                /* If either operand is float, result is float. Otherwise int. */
                                                                                 $$->type = ($1->type == TYPE_FLOAT || $3->type == TYPE_FLOAT) ? TYPE_FLOAT : TYPE_INT;
+                                                                                /* Compute the value at compile time (works for literals, best-effort for variables). */
                                                                                 if ($$->type == TYPE_INT) {
                                                                                     $$->data.i = $1->data.i + $3->data.i;
                                                                                 }
                                                                                 else {
                                                                                     $$->data.f = ((float) ($1->type == TYPE_INT ? $1->data.i : $1->data.f)) + (float) ($3->type == TYPE_INT ? $3->data.i : $3->data.f);
                                                                                 }
+                                                                                /* Mint a fresh temp name (t0, t1, ...) and emit the quadruple.
+                                                                                 * $1->label = left operand name, $3->label = right operand name.
+                                                                                 * e.g. a + b → (+, a, b, t0) */
                                                                                 $$->label = allocateTempVar(&tempVars);
                                                                                 fprintf(quadruplesFile, "(+, %s, %s, %s)\n", $1->label, $3->label, $$->label);
                                                                             }
@@ -1674,6 +1853,7 @@ mathematical_expression : mathematical_expression PLUS mathematical_term    {
                                                                                     yyerror("Invalid expression: cannot perform a subtraction operation between non-numeric expressions.");
                                                                                 }
                                                                                 $$ = malloc(sizeof(Value));
+                                                                                /* Same float-promotion rule as addition. */
                                                                                 $$->type = ($1->type == TYPE_FLOAT || $3->type == TYPE_FLOAT) ? TYPE_FLOAT : TYPE_INT;
                                                                                 if ($$->type == TYPE_INT) {
                                                                                     $$->data.i = $1->data.i - $3->data.i;
@@ -1681,6 +1861,7 @@ mathematical_expression : mathematical_expression PLUS mathematical_term    {
                                                                                 else {
                                                                                     $$->data.f = ((float) ($1->type == TYPE_INT ? $1->data.i : $1->data.f)) - ($3->type == TYPE_INT ? $3->data.i : $3->data.f);
                                                                                 }
+                                                                                /* e.g. a - b → (-, a, b, t0) */
                                                                                 $$->label = allocateTempVar(&tempVars);
                                                                                 fprintf(quadruplesFile, "(-, %s, %s, %s)\n", $1->label, $3->label, $$->label);
                                                                             }
@@ -1698,6 +1879,7 @@ mathematical_term : mathematical_term MULT mathematical_exponent    {
                                                                             yyerror("Invalid expression: cannot perform a multiplication operation between non-numeric expressions.");
                                                                         }
                                                                         $$ = malloc(sizeof(Value));
+                                                                        /* Same float-promotion rule as addition. */
                                                                         $$->type = ($1->type == TYPE_FLOAT || $3->type == TYPE_FLOAT) ? TYPE_FLOAT : TYPE_INT;
                                                                         if ($$->type == TYPE_INT) {
                                                                             $$->data.i = $1->data.i * $3->data.i;
@@ -1705,6 +1887,7 @@ mathematical_term : mathematical_term MULT mathematical_exponent    {
                                                                         else {
                                                                             $$->data.f = ((float) ($1->type == TYPE_INT ? $1->data.i : $1->data.f)) * (float )($3->type == TYPE_INT ? $3->data.i : $3->data.f);
                                                                         }
+                                                                        /* e.g. a * b → (*, a, b, t0) */
                                                                         $$->label = allocateTempVar(&tempVars);
                                                                         fprintf(quadruplesFile, "(*, %s, %s, %s)\n", $1->label, $3->label, $$->label);
                                                                     }
@@ -1718,6 +1901,7 @@ mathematical_term : mathematical_term MULT mathematical_exponent    {
                                                                             yyerror("Invalid expression: cannot divide by zero.");
                                                                         }
                                                                         $$ = malloc(sizeof(Value));
+                                                                        /* Same float-promotion rule. Divide-by-zero already rejected above. */
                                                                         $$->type = ($1->type == TYPE_FLOAT || $3->type == TYPE_FLOAT) ? TYPE_FLOAT : TYPE_INT;
                                                                         if ($$->type == TYPE_INT) {
                                                                             $$->data.i = $1->data.i / $3->data.i;
@@ -1725,6 +1909,7 @@ mathematical_term : mathematical_term MULT mathematical_exponent    {
                                                                         else {
                                                                             $$->data.f = ((float) ($1->type == TYPE_INT ? $1->data.i : $1->data.f)) / (float) ($3->type == TYPE_INT ? $3->data.i : $3->data.f);
                                                                         }
+                                                                        /* e.g. a / b → (/, a, b, t0) */
                                                                         $$->label = allocateTempVar(&tempVars);
                                                                         fprintf(quadruplesFile, "(/, %s, %s, %s)\n", $1->label, $3->label, $$->label);
                                                                     }
@@ -1738,8 +1923,11 @@ mathematical_term : mathematical_term MULT mathematical_exponent    {
                                                                             yyerror("Invalid expression: cannot divide by zero.");
                                                                         }
                                                                         $$ = malloc(sizeof(Value));
+                                                                        /* Modulo is always INT — floats not allowed, checked above. */
                                                                         $$->type = TYPE_INT;
                                                                         $$->data.i = $1->data.i % $3->data.i;
+                                                                        /* %% is needed to print a literal % in fprintf format string.
+                                                                         * e.g. a % b → (%, a, b, t0) */
                                                                         $$->label = allocateTempVar(&tempVars);
                                                                         fprintf(quadruplesFile, "(%%, %s, %s, %s)\n", $1->label, $3->label, $$->label);
                                                                     }
@@ -1762,6 +1950,8 @@ mathematical_exponent : primary POW mathematical_exponent   {
                                                                     yyerror("Invalid expression: cannot perform an exponentiation operation between non-numeric expressions.");
                                                                 }
                                                                 $$ = malloc(sizeof(Value));
+                                                                /* Float if either side is float OR if exponent is negative
+                                                                 * (e.g. 2^-1 = 0.5, can't be stored as int). */
                                                                 $$->type = ($1->type == TYPE_FLOAT || $3->type == TYPE_FLOAT || (($3->type == TYPE_INT) && ($3->data.i < 0))) ? TYPE_FLOAT : TYPE_INT;
                                                                 if ($$->type == TYPE_INT) {
                                                                     $$->data.i = pow($1->data.i, $3->data.i);
@@ -1769,6 +1959,7 @@ mathematical_exponent : primary POW mathematical_exponent   {
                                                                 else {
                                                                     $$->data.f = pow((float) ($1->type == TYPE_INT ? $1->data.i : $1->data.f), (float) ($3->type == TYPE_INT ? $3->data.i : $3->data.f));
                                                                 }
+                                                                /* e.g. a ^ b → (^, a, b, t0) */
                                                                 $$->label = allocateTempVar(&tempVars);
                                                                 fprintf(quadruplesFile, "(^, %s, %s, %s)\n", $1->label, $3->label, $$->label);
                                                             }
@@ -1806,6 +1997,7 @@ primary : OPENING_PARENTHESIS logical_expression CLOSING_PARENTHESIS    {
                                                                                 yyerror("Invalid expression: cannot perform a negation operation on a non-numeric expression.");
                                                                             }
                                                                             $$ = malloc(sizeof(Value));
+                                                                            /* Unary minus keeps the same type as the operand. */
                                                                             $$->type = $2->type;
                                                                             if ($$->type == TYPE_INT) {
                                                                                 $$->data.i = -($2->data.i);
@@ -1813,6 +2005,8 @@ primary : OPENING_PARENTHESIS logical_expression CLOSING_PARENTHESIS    {
                                                                             else {
                                                                                 $$->data.f = -($2->data.f);
                                                                             }
+                                                                            /* N/A for arg2 because this is a unary operator (one operand only).
+                                                                             * e.g. -x → (-, x, N/A, t0) */
                                                                             $$->label = allocateTempVar(&tempVars);
                                                                             fprintf(quadruplesFile, "(-, %s, N/A, %s)\n", $2->label, $$->label);
                                                                         }
@@ -1822,18 +2016,24 @@ primary : OPENING_PARENTHESIS logical_expression CLOSING_PARENTHESIS    {
                                                                                 yyerror("Invalid expression: cannot perform an inversion operation on a non-boolean expression.");
                                                                             }
                                                                             $$ = malloc(sizeof(Value));
+                                                                            /* Logical NOT — result is always bool. */
                                                                             $$->type = TYPE_BOOL;
                                                                             $$->data.i = !($2->data.i);
+                                                                            /* N/A for arg2 because this is a unary operator.
+                                                                             * e.g. !flag → (!, flag, N/A, t0) */
                                                                             $$->label = allocateTempVar(&tempVars);
                                                                             fprintf(quadruplesFile, "(!, %s, N/A, %s)\n", $2->label, $$->label); 
                                                                         }
         | INTEGER                                                       {
+                                                                            /* Wrap the integer literal in a Value so parent rules can use it.
+                                                                             * No quadruple emitted — just prepare the label (e.g. "5"). */
                                                                             $$ = malloc(sizeof(Value));
                                                                             $$->type = TYPE_INT;
                                                                             $$->data.i = $1;
+                                                                            /* Calculate how many chars the number needs, then write it as a string. */
                                                                             int size = snprintf(NULL, 0, "%d", $1);
                                                                             $$->label = malloc(size + 1);
-                                                                            sprintf($$->label, "%d", $1);
+                                                                            sprintf($$->label, "%d", $1);  /* label = "5" */
                                                                         }
         | FLOAT                                                         {
                                                                             $$ = malloc(sizeof(Value));
@@ -1844,6 +2044,8 @@ primary : OPENING_PARENTHESIS logical_expression CLOSING_PARENTHESIS    {
                                                                             sprintf($$->label, "%f", $1);
                                                                         }
         | BOOL                                                          {
+                                                                            /* Booleans are stored as 0 or 1 in data.i.
+                                                                             * "true" needs 5 bytes, "false" needs 6 (including \0). */
                                                                             $$ = malloc(sizeof(Value));
                                                                             $$->type = TYPE_BOOL;
                                                                             $$->data.i = $1;
@@ -1851,6 +2053,8 @@ primary : OPENING_PARENTHESIS logical_expression CLOSING_PARENTHESIS    {
                                                                             strcpy($$->label, $1 == 1 ? "true" : "false");
                                                                         }
         | CHAR                                                          {
+                                                                            /* Label wraps the char in single quotes, e.g. 'a'.
+                                                                             * Always 4 bytes: quote + char + quote + \0. */
                                                                             $$ = malloc(sizeof(Value));
                                                                             $$->type = TYPE_CHAR;
                                                                             $$->data.c = $1;
@@ -1858,6 +2062,8 @@ primary : OPENING_PARENTHESIS logical_expression CLOSING_PARENTHESIS    {
                                                                             sprintf($$->label, "'%c'", $1);
                                                                         }
         | STRING                                                        {
+                                                                            /* Label wraps the text in double quotes, e.g. "hello".
+                                                                             * Allocate: strlen + 2 quotes + \0. */
                                                                             $$ = malloc(sizeof(Value));
                                                                             $$->type = TYPE_STRING;
                                                                             $$->data.s = $1;
@@ -1870,6 +2076,8 @@ primary : OPENING_PARENTHESIS logical_expression CLOSING_PARENTHESIS    {
         /* Variable / constant lookup. THIS is where we enforce
          * use-before-init and "is this identifier even declared". */
         | IDENTIFIER                                                    {
+                                                                            /* Look up the variable/constant in the symbol table.
+                                                                             * The checks below are Member 2's semantic checks. */
                                                                             $$ = malloc(sizeof(Value));
                                                                             Symbol* symbol = SymbolTable_get(symbolTable, $1);
                                                                             if (!symbol) {
@@ -1884,6 +2092,7 @@ primary : OPENING_PARENTHESIS logical_expression CLOSING_PARENTHESIS    {
                                                                                 fprintf(semanticAnalysisFile, "Line %d: Invalid expression: cannot use an uninitialized variable.", line);
                                                                                 yyerror("Invalid expression: cannot use an uninitialized variable.");
                                                                             }
+                                                                            /* Copy the type and current value from the symbol table. */
                                                                             $$->type = symbol->value.type;
                                                                             switch($$->type) {
                                                                                 case TYPE_BOOL:
@@ -1911,6 +2120,8 @@ primary : OPENING_PARENTHESIS logical_expression CLOSING_PARENTHESIS    {
                                                                         }
         /* Function call result. A void function cannot be used as a value. */
         | function_call                                                 {
+                                                                            /* A function call used as a value, e.g. x = square(4).
+                                                                             * Void functions produce no value so they can't appear here. */
                                                                             if ($1->type == TYPE_VOID) {
                                                                                 fprintf(semanticAnalysisFile, "Line %d: Invalid expression: cannot call a \"void\" function.", line);
                                                                                 yyerror("Invalid expression: cannot call a \"void\" function.");
@@ -1934,6 +2145,8 @@ primary : OPENING_PARENTHESIS logical_expression CLOSING_PARENTHESIS    {
                                                                                     $$->data.s = $1->data.s;
                                                                                     break;
                                                                             }
+                                                                            /* The return value is always in "tr" (temporary return).
+                                                                             * The parent rule uses "tr" as this expression's label. */
                                                                             $$->label = malloc(3);
                                                                             $$->label = "tr";
                                                                         }
@@ -1965,39 +2178,40 @@ print_statement : PRINT OPENING_PARENTHESIS argument_list CLOSING_PARENTHESIS   
 /* ---- Section 3: Subroutines ------------------------------------------ */
 
 /* -------------------------------------------------------------------------
- * yyerror - Bison calls this when the input doesn't match the grammar
- *           (a syntax error). We also invoke it ourselves from semantic
- *           actions to abort on semantic errors.
+ * yyerror - Bison calls this automatically on a syntax error (tokens don't
+ *           match the grammar). We also call it manually from semantic
+ *           actions when a type or scope rule is violated.
  *
- * Prints the offending line number and the error message to stderr,
- * then cleanly closes the output files (so any IR or symbol-table
- * content written so far is flushed to disk for the user to inspect)
- * and exits with non-zero.
- *
- * IMPROVEMENT (left as future work): replace the exit(1) with Bison's
- * `error` production recovery so the parser can continue and report
- * multiple errors in a single run.
+ * Prints the line number and error message to stderr, then sets hadError=1.
+ * Does NOT call exit() — the compiler keeps running to report all errors.
  * ------------------------------------------------------------------------- */
 void yyerror(const char* s) {
+    /* Print the error to stderr (the terminal) with the current line number.
+     * `line` is the global counter bumped by the lexer on every newline,
+     * so it always points to the line where the error was detected.
+     * `s` is the error message string passed by Bison or by our own actions. */
     fprintf(stderr, "\nLine %d: %s\n", line, s);
+
+    /* Set the global error flag instead of calling exit(1).
+     * This lets the compiler keep parsing and report ALL errors in one run,
+     * rather than stopping at the very first one. */
     hadError = 1;
 }
 
 /* -------------------------------------------------------------------------
  * main - the compiler's entry point.
  *
- *  1. Open the input source (argv[1], default stdin) into yyin so flex
- *     reads from it.
+ *  1. Open the input source (argv[1], default stdin) into yyin so Flex
+ *     reads tokens from it.
  *  2. Open the four output files: SymbolTable.out, SemanticAnalysis.out,
  *     SymbolTableVisualiser.out, Quadruples.out.
- *  3. Write the visualiser header rows.
- *  4. Initialise per-switch numCases[] to zero.
+ *  3. Write the visualiser header rows for the global scope.
+ *  4. Initialise numCases[] to zero for switch statement tracking.
  *  5. Construct the empty global symbol table.
- *  6. Call yyparse() - this drives the whole compiler. Inside it Bison
- *     repeatedly calls yylex() and our grammar actions, until end-of-file
- *     or a yyerror() that triggers exit(1).
- *  7. Destroy the symbol table (which emits any final "unused" warnings).
- *  8. Close all output files.
+ *  6. Call yyparse() — runs the whole compiler until end-of-file.
+ *     Errors set hadError=1 but do NOT stop parsing.
+ *  7. Close yyin, destroy the symbol table (emits unused warnings).
+ *  8. Close all output files and return hadError (0=ok, 1=error).
  * ------------------------------------------------------------------------- */
 int main(int argc, char** argv) {
     if (argc > 1) {
