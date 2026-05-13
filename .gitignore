@@ -12,7 +12,6 @@ SemanticAnalysis.out
 Quadruples.out
 
 # --- Local scratch / sample input (commit one canonical example if needed) ---
-src.txt
 err.txt
 build.bat
 build_log.txt

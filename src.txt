@@ -1,0 +1,312 @@
+// ============================================================
+//  src.txt  —  test file covering all language features
+// ============================================================
+
+
+// ── 1. Variable and Constant Declarations ───────────────────
+int counter = 0;
+float pi = 3.14;
+bool flag = true;
+char grade = 'A';
+string name = "Compilers";
+const int MAX = 100;
+const float TAX = 0.15;
+print(MAX);
+print(TAX);
+
+int unused_var;
+
+
+// ── 2. Assignment ───────────────────────────────────────────
+counter = 10;
+pi = 3.14159;
+flag = false;
+print(counter);
+print(pi);
+print(flag);
+print(name);
+print(grade);
+
+
+// ── 3. Mathematical Expressions ─────────────────────────────
+int a = 4;
+int b = 3;
+int sum = a + b;
+int diff = a - b;
+int prod = a * b;
+int quotient = a / b;
+int remainder = a % b;
+int power = a ^ b;
+float mixed = a + 0.5;
+print(sum);
+print(diff);
+print(prod);
+print(quotient);
+print(remainder);
+print(power);
+print(mixed);
+
+
+// ── 4. Logical Expressions ──────────────────────────────────
+bool t = true;
+bool f = false;
+bool and_result = t & f;
+bool or_result  = t | f;
+bool not_result = !t;
+print(and_result);
+print(or_result);
+print(not_result);
+
+
+// ── 5. Comparison Expressions ───────────────────────────────
+bool eq  = a == b;
+bool neq = a != b;
+bool lt  = a < b;
+bool gt  = a > b;
+bool lte = a <= b;
+bool gte = a >= b;
+print(eq);
+print(neq);
+print(lt);
+print(gt);
+print(lte);
+print(gte);
+
+
+// ── 6. If - Else ────────────────────────────────────────────
+if (a > b) {
+    print(a);
+}
+else {
+    print(b);
+}
+
+
+// ── 7. Nested If - Else ─────────────────────────────────────
+int score = 85;
+if (score >= 90) {
+    string result = "Excellent";
+    print(result);
+}
+else {
+    if (score >= 75) {
+        string result = "Good";
+        print(result);
+    }
+    else {
+        string result = "Needs Improvement";
+        print(result);
+    }
+}
+
+
+// ── 8. While Loop ───────────────────────────────────────────
+int i = 0;
+while (i < 5) {
+    print(i);
+    i = i + 1;
+}
+
+
+// ── 9. Repeat - Until Loop ──────────────────────────────────
+int j = 0;
+repeat {
+    print(j);
+    j = j + 1;
+} until (j == 3)
+
+
+// ── 10. For Loop (no step) ──────────────────────────────────
+int k = 0;
+for k from (1) to (5) {
+    print(k);
+}
+
+
+// ── 11. For Loop (with step) ────────────────────────────────
+int n = 0;
+for n from (0) to (10) step (2) {
+    print(n);
+}
+
+
+// ── 12. Switch Statement ────────────────────────────────────
+int day = 3;
+switch (day) {
+    case (1) {
+        string day_name = "Monday";
+        print(day_name);
+    }
+    case (2) {
+        string day_name = "Tuesday";
+        print(day_name);
+    }
+    case (3) {
+        string day_name = "Wednesday";
+        print(day_name);
+    }
+    default {
+        string day_name = "Other";
+        print(day_name);
+    }
+}
+
+
+// ── 13. Block Structure / Nested Scopes ─────────────────────
+int x = 1;
+{
+    int x = 2;          // shadows outer x — valid
+    {
+        int x = 3;      // shadows again — valid
+        print(x);       // prints 3
+    }
+    print(x);           // prints 2
+}
+print(x);               // prints 1
+
+
+// ── 14. Void Function ───────────────────────────────────────
+void greet(string msg) {
+    print(msg);
+}
+
+
+// ── 15. Function with Return Value ──────────────────────────
+int add(int p, int q) {
+    return p + q;
+}
+
+
+// ── 16. Function with Float ─────────────────────────────────
+float multiply(float p, float q) {
+    return p * q;
+}
+
+
+// ── 17. Boolean Function ────────────────────────────────────
+bool is_even(int num) {
+    int r = num % 2;
+    return r == 0;
+}
+
+
+// ── 18. Recursive Function ──────────────────────────────────
+int factorial(int num) {
+    if (num == 0) {
+        return 1;
+    }
+    else {
+        return num * factorial(num - 1);
+    }
+}
+
+
+// ── 19. Function Calls ──────────────────────────────────────
+greet("Hello from the compiler!");
+
+int add_result = add(3, 7);
+print(add_result);
+
+float mul_result = multiply(2.5, 4.0);
+print(mul_result);
+
+bool even_check = is_even(8);
+print(even_check);
+
+int fact_result = factorial(5);
+print(fact_result);
+
+
+// ── 20. Function Call Inside Expression ─────────────────────
+int combined = add(1, 2) + add(3, 4);
+print(combined);
+
+
+// ── 21. Print Variations ────────────────────────────────────
+print("Done.");
+print();
+
+
+// ── 22. Unary Negation ──────────────────────────────────────
+int pos = 5;
+int neg = -pos;
+float fneg = -3.14;
+print(neg);
+print(fneg);
+
+
+// ── 23. Complex Parenthesized Expressions ───────────────────
+int complex1 = (a + b) * (a - b);
+int complex2 = a * (b + 2) - (a ^ 2);
+bool complex3 = (a > b) & !(a == b);
+print(complex1);
+print(complex2);
+print(complex3);
+
+
+// ── 24. Print with Multiple Arguments ───────────────────────
+print(a, b, sum, prod);
+
+
+// ── 25. Char Comparisons ────────────────────────────────────
+char c1 = 'a';
+char c2 = 'z';
+bool char_lt  = c1 < c2;
+bool char_eq  = c1 == c2;
+bool char_neq = c1 != c2;
+print(char_lt);
+print(char_eq);
+print(char_neq);
+
+
+// ── 26. No-Parameter Function ───────────────────────────────
+void print_separator() {
+    print("---");
+}
+
+int get_zero() {
+    return 0;
+}
+
+print_separator();
+int zero = get_zero();
+print(zero);
+
+
+// ── 27. Switch Without Default ──────────────────────────────
+int code = 2;
+switch (code) {
+    case (1) {
+        print("one");
+    }
+    case (2) {
+        print("two");
+    }
+    case (3) {
+        print("three");
+    }
+}
+
+
+// ── 28. Nested Loops ────────────────────────────────────────
+int outer = 0;
+int inner = 0;
+for outer from (1) to (3) {
+    for inner from (1) to (3) {
+        print(outer);
+        print(inner);
+    }
+}
+
+
+// ── 29. While with Nested If ────────────────────────────────
+int val = 0;
+while (val < 6) {
+    if (val == 3) {
+        print("mid");
+    }
+    else {
+        print(val);
+    }
+    val = val + 1;
+}
